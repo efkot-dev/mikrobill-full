@@ -262,7 +262,8 @@ function buildSetup(c){
   L.push(':do { /interface/veth/add name=("veth-" . $containerName) address=("$containerIP/" . $containerMask) gateway=$containerGW } on-error={ :put " ! veth exists, reusing" }');
   L.push(':do { /interface/bridge/port/add bridge=$bridgeName interface=("veth-" . $containerName) } on-error={}');
   L.push('# Single mount point (entrypoint.sh + mysql + data + web inside)');
-  L.push(':do { /container/mounts/add name=($containerName . "-data") src=$baseDir dst="/mikrobill-data" } on-error={}');
+  L.push(':local mntList ($containerName . "-data")');
+  L.push(':do { /container/mounts/add list=$mntList src=$baseDir dst="/mikrobill-data" } on-error={ :put "WARNING: mount list not created - check /container/mounts/print" }');
   L.push('# Env vars (property is list=, referenced by envlist=)');
   L.push(':do {');
   L.push('  /container/envs/add list=$containerName key="DB_NAME" value="mikrobill"');
@@ -275,8 +276,7 @@ function buildSetup(c){
   if(!c.admin)L.push('# Admin password left empty: auto-generated into /mikrobill-data/data/secrets/admin_password');
   L.push('# Container');
   L.push(':do { /file/add name=("$baseDir/container") type=directory } on-error={}');
-  L.push('/container/add remote-image=$dockerImage name=$containerName interface=("veth-" . $containerName) envlist=$containerName mounts=($containerName . "-data") root-dir=("$baseDir/container") shm-size=256.0MiB logging=yes start-on-boot=$startBoot');  L.push('# NAT');
-  L.push(':if ($addNat = "yes") do={');
+  L.push('/container/add remote-image=$dockerImage name=$containerName interface=("veth-" . $containerName) envlist=$containerName mounts=($containerName . "-data") root-dir=("$baseDir/container") shm-size=256.0MiB logging=yes start-on-boot=$startBoot');  L.push(':if ($addNat = "yes") do={');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=80 action=dst-nat to-addresses=$containerIP to-ports=80 comment="MikroBILL HTTP" } on-error={}');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=443 action=dst-nat to-addresses=$containerIP to-ports=443 comment="MikroBILL HTTPS" } on-error={}');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=7402 action=dst-nat to-addresses=$containerIP comment="MikroBILL Core" } on-error={}');
@@ -295,7 +295,7 @@ function buildUninst(c){
   L.push(':do { /container/remove [find where name=$containerName] } on-error={}');
   L.push(':do { /file/remove [find where name=("$baseDir/container")] } on-error={}');
   L.push(':do { /container/envs/remove [find where list=$containerName] } on-error={}');
-  L.push(':do { /container/mounts/remove [find where name=($containerName . "-data")] } on-error={}');
+  L.push(':do { /container/mounts/remove [find where list=($containerName . "-data")] } on-error={}');
   L.push(':do { /interface/bridge/port/remove [find where interface=("veth-" . $containerName)] } on-error={}');
   L.push(':do { /interface/veth/remove [find where name=("veth-" . $containerName)] } on-error={}');
   L.push(':do { /ip/firewall/nat/remove [find where comment~"MikroBILL Core"] } on-error={}');
