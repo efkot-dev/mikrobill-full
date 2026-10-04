@@ -62,6 +62,8 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.build == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
