@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MikroBILL — RouterOS 7 configurator</title>
+<style>
+:root{--bg:#0f172a;--panel:#1e293b;--line:#334155;--tx:#e2e8f0;--mut:#94a3b8;--ok:#86efac;--ac:#2563eb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,sans-serif}
+.wrap{max-width:1020px;margin:0 auto;padding:20px}
+h1{font-size:21px;margin:6px 0 2px}
+.sub{color:var(--mut);margin:0 0 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
+input,select{background:#0b1220;border:1px solid var(--line);color:var(--tx);padding:8px;border-radius:6px;font:13px monospace}
+input[type=checkbox]{width:auto}
+.chk{flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--tx)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+button{background:var(--ac);border:0;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+button.sec{background:var(--line)}
+pre{background:#020617;border:1px solid var(--line);border-radius:8px;padding:12px;color:var(--ok);font:12px/1.4 monospace;white-space:pre-wrap;max-height:420px;overflow:auto}
+pre.collapsed{max-height:200px}
+.err{background:#450a0a;border:1px solid #b91c1c;border-radius:8px;padding:10px;margin:10px 0;color:#fecaca;white-space:pre-wrap}
+.hint{font-size:12px;color:var(--mut)}
+.lang{float:right}
+h2{font-size:15px;margin:0 0 8px}
+@media(max-width:760px){.grid,.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<button class="sec lang" id="langBtn" onclick="setLang(cur==='ru'?'en':'ru')">EN</button>
+<h1 id="t_title"></h1>
+<p class="sub" id="t_sub"></p>
+
+<div class="card">
+ <div class="grid">
+  <label><span id="l_storage"></span>
+   <select id="storage">
+    <option value="disk1">disk1/ — internal (default)</option>
+    <option value="usb1">usb1/ — USB flash</option>
+    <option value="usb1-part1">usb1-part1/ — USB partition</option>
+    <option value="usb2">usb2/ — USB flash (2nd)</option>
+    <option value="sd1">sd1/ — SD / microSD</option>
+    <option value="nvme1">nvme1/ — NVMe SSD</option>
+    <option value="__custom">... custom</option>
+   </select></label>
+  <label><span id="l_custom"></span><input id="storageCustom" style="display:none"></label>
+ </div>
+ <div class="grid3" style="margin-top:10px">
+  <label><span id="l_folder"></span><input id="folder" value="mikrobill"></label>
+  <label><span id="l_name"></span><input id="cname" value="mikrobill"></label>
+  <label><span id="l_bridge"></span><input id="bridge" value="bridge"></label>
+ </div>
+ <div class="grid3" style="margin-top:10px">
+  <label><span id="l_ip"></span><input id="ip" value="192.168.88.10"></label>
+  <label><span id="l_mask"></span><input id="mask" value="24"></label>
+  <label><span id="l_gw"></span><input id="gw" value="192.168.88.1"></label>
+ </div>
+ <div class="grid" style="margin-top:10px">
+  <label><span id="l_image"></span><input id="image" value=""></label>
+  <label><span id="l_entry"></span><input id="entry" value=""></label>
+ </div>
+ <div class="grid" style="margin-top:10px">
+  <label><span id="l_db"></span><input id="dbpass" value=""></label>
+  <label><span id="l_admin"></span><input id="adminpass" value=""></label>
+ </div>
+ <div class="grid3" style="margin-top:10px">
+  <label class="chk"><input type="checkbox" id="nat" checked><span id="l_nat"></span></label>
+  <label class="chk"><input type="checkbox" id="boot" checked><span id="l_boot"></span></label>
+  <label class="chk"><input type="checkbox" id="wipe"><span id="l_wipe"></span></label>
+ </div>
+</div>
+
+<div id="errors" class="err" style="display:none"></div>
+
+<div class="card">
+ <h2 id="t_out1"></h2>
+ <div class="btns">
+  <button onclick="copyText('setup')">—</button>
+  <button class="sec" onclick="download('setup')">—</button>
+  <button class="sec" onclick="toggleCollapse('setup')">—</button>
+ </div>
+ <pre id="pre-setup" spellcheck="false"></pre>
+</div>
+
+<div class="card">
+ <h2 id="t_out2"></h2>
+ <div class="btns">
+  <button onclick="copyText('uninst')">—</button>
+  <button class="sec" onclick="download('uninst')">—</button>
+  <button class="sec" onclick="toggleCollapse('uninst')">—</button>
+ </div>
+ <pre id="pre-uninst" spellcheck="false"></pre>
+</div>
+
+<p class="hint" id="t_how"></p>
+</div>
+
+<script>
+// ==== repo auto-detect (GitHub Pages) ====
+var GH={user:'efkot',repo:'mikrobill-full',branch:'main'};
+(function(){
+  try{
+    var h=location.hostname.split('.');
+    if(h.length>=3&&h[1]==='github'&&h[2]==='io'){
+      GH.user=h[0];
+      GH.repo=location.pathname.split('/')[1]||GH.repo;
+    }
+  }catch(e){}
+})();
+
+var cur='ru';
+var I18N={
+ru:{
+ title:'MikroBILL — генератор скриптов для RouterOS 7',
+ sub:'Заполните параметры — скрипты ниже обновятся мгновенно. Всё считается локально в браузере, ничего никуда не отправляется.',
+ storage:'Хранилище контейнера',custom:'Свой диск/путь',folder:'Папка с данными',name:'Имя контейнера',
+ bridge:'Bridge',ip:'IP контейнера',mask:'Маска',gw:'Шлюз',image:'Образ Docker Hub',
+ entry:'URL entrypoint.sh (RAW GitHub)',db:'Пароль БД (пусто = автогенерация)',
+ admin:'Пароль админа (пусто = автогенерация)',nat:'NAT-правила (80, 443, 7402-7405)',
+ boot:'start-on-boot',wipe:'uninstall: удалить данные!',
+ out1:'Шаг 1 — setup.rsc (установка)',out2:'Шаг 2 — uninstall.rsc (удаление)',
+ copy:'Скопировать',dl:'Скачать',collapse:'Свернуть',expand:'Развернуть',errs:'Ошибки:',
+ how:'Как применить: скачайте setup.rsc, загрузите его в Files роутера (WinBox/FTP) и выполните /import file=setup.rsc. Логи установки: /log print follow where topics~"container". Порты 80/443 не должны быть заняты сервисом www самого RouterOS, иначе ACME не пройдёт: /ip service set www disabled=yes.',
+ eIP:'Некорректный IPv4 адрес',eMask:'Маска: число 1-32',eName:'Имя/папка: латиница, цифры, - _ (1-30)',
+ eImage:'Образ должен содержать /',eUrl:'URL entrypoint.sh должен начинаться с https://',eBridge:'Укажите bridge'
+},
+en:{
+ title:'MikroBILL — RouterOS 7 script generator',
+ sub:'Fill in the parameters - the scripts below update instantly. Everything is processed locally in your browser.',
+ storage:'Container storage',custom:'Custom disk/path',folder:'Data folder',name:'Container name',
+ bridge:'Bridge',ip:'Container IP',mask:'Mask',gw:'Gateway',image:'Docker Hub image',
+ entry:'entrypoint.sh URL (GitHub RAW)',db:'DB password (empty = auto-generate)',
+ admin:'Admin password (empty = auto-generate)',nat:'NAT rules (80, 443, 7402-7405)',
+ boot:'start-on-boot',wipe:'uninstall: wipe data!',
+ out1:'Step 1 - setup.rsc (install)',out2:'Step 2 - uninstall.rsc (removal)',
+ copy:'Copy',dl:'Download',collapse:'Collapse',expand:'Expand',errs:'Errors:',
+ how:'How to apply: download setup.rsc, upload it to the router Files (WinBox/FTP) and run /import file=setup.rsc. Install logs: /log print follow where topics~"container". Ports 80/443 must not be taken by the RouterOS www service or ACME will fail: /ip service set www disabled=yes.',
+ eIP:'Invalid IPv4 address',eMask:'Mask: number 1-32',eName:'Name/folder: letters, digits, - _ (1-30)',
+ eImage:'Image must contain /',eUrl:'entrypoint.sh URL must start with https://',eBridge:'Bridge required'
+}};
+function t(k){return (I18N[cur]&&I18N[cur][k])||I18N.en[k]||k}
+function setLang(l){cur=l;applyI18n();render()}
+function applyI18n(){
+  document.getElementById('langBtn').textContent=(cur==='ru'?'EN':'RU');
+  ['title','sub','storage','custom','folder','name','bridge','ip','mask','gw','image','entry','db','admin','nat','boot','wipe','out1','out2','how'].forEach(function(k){
+    var el=document.getElementById((['title','sub','how'].indexOf(k)>=0?'t_':'l_')+k);
+    if(el)el.textContent=t(k);
+  });
+  document.querySelectorAll('.btns').forEach(function(b,i){
+    b.children[0].textContent=t('copy');
+    b.children[1].textContent=t('dl');
+    b.children[2].textContent=document.getElementById(i===0?'pre-setup':'pre-uninst').classList.contains('collapsed')?t('expand'):t('collapse');
+  });
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function rsc(s){return String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"')}
+function isIP(s){var m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);if(!m)return false;
+  for(var i=1;i<=4;i++){if(Number(m[i])>255)return false}return true}
+function getDisk(){
+  var v=document.getElementById('storage').value;
+  if(v==='__custom'){return document.getElementById('storageCustom').value.trim()||'disk1'}
+  return v;
+}
+function cfg(){
+  return{
+    disk:getDisk(),
+    folder:document.getElementById('folder').value.trim(),
+    name:document.getElementById('cname').value.trim(),
+    bridge:document.getElementById('bridge').value.trim(),
+    ip:document.getElementById('ip').value.trim(),
+    mask:document.getElementById('mask').value.trim(),
+    gw:document.getElementById('gw').value.trim(),
+    image:document.getElementById('image').value.trim(),
+    entry:document.getElementById('entry').value.trim(),
+    db:document.getElementById('dbpass').value,
+    admin:document.getElementById('adminpass').value,
+    nat:document.getElementById('nat').checked?'yes':'no',
+    boot:document.getElementById('boot').checked?'yes':'no',
+    wipe:document.getElementById('wipe').checked
+  };
+}
+function validate(c){
+  var e=[];
+  if(!isIP(c.ip)||!isIP(c.gw))e.push(t('eIP'));
+  if(!/^\d{1,2}$/.test(c.mask)||Number(c.mask)<1||Number(c.mask)>32)e.push(t('eMask'));
+  if(!/^[a-zA-Z0-9_-]{1,30}$/.test(c.name)||!/^[a-zA-Z0-9_-]{1,30}$/.test(c.folder))e.push(t('eName'));
+  if(!c.bridge)e.push(t('eBridge'));
+  if(c.image.indexOf('/')<0)e.push(t('eImage'));
+  if(c.entry.indexOf('https://')!==0)e.push(t('eUrl'));
+  return e;
+}
+function buildSetup(c){
+  var L=[],base=c.disk+'/'+c.folder,veth='veth-'+c.name,mnt=c.name+'-data';
+  L.push('# ============================================================');
+  L.push('# MikroBILL install script for RouterOS 7 (no Cyrillic: UTF-8 safe)');
+  L.push('# Generated: '+new Date().toISOString());
+  L.push('# Storage: '+base+' | Container: '+c.name+' @ '+c.ip+'/'+c.mask+' gw '+c.gw);
+  L.push('# Image: '+c.image+' (approx 350 MB, needs free space)');
+  L.push('# ============================================================');
+  L.push('');
+  L.push(':local problems 0');
+  L.push(':local baseDir "'+rsc(base)+'"');
+  L.push(':local containerName "'+rsc(c.name)+'"');
+  L.push(':local containerIP "'+rsc(c.ip)+'"');
+  L.push(':local containerMask "'+rsc(c.mask)+'"');
+  L.push(':local containerGW "'+rsc(c.gw)+'"');
+  L.push(':local bridgeName "'+rsc(c.bridge)+'"');
+  L.push(':local dockerImage "'+rsc(c.image)+'"');
+  L.push(':local entrypointUrl "'+rsc(c.entry)+'"');
+  L.push(':local addNat "'+c.nat+'"');
+  L.push(':local startBoot "'+c.boot+'"');
+  L.push('');
+  L.push(':put "--- Preflight ---"');
+  L.push('# 1. Clock: https downloads and TLS fail with a wrong date');
+  L.push(':local yr [:tonum [:pick [/system/clock/get date] 0 4]]');
+  L.push(':if ([:typeof $yr] = "nil" or $yr < 2024) do={');
+  L.push('  :put (" ! Clock says " . [/system/clock/get date] . " - fix it first:")');
+  L.push('  :put "   /system/ntp/client/set enabled=yes servers=216.239.35.0,162.159.200.1"');
+  L.push('  :set problems ($problems + 1)');
+  L.push('} else={ :put "ok: clock looks sane" }');
+  L.push('# 2. DNS: needed to pull the image and fetch entrypoint.sh');
+  L.push(':if ([:len [/ip/dns/get servers]] = 0) do={');
+  L.push('  :put " ! No DNS servers configured. Example:"');
+  L.push('  :put "   /ip/dns/set servers=8.8.8.8,1.1.1.1"');
+  L.push('  :set problems ($problems + 1)');
+  L.push('} else={ :put "ok: DNS configured" }');
+  L.push('# 3. Container package present');
+  L.push(':do { /container/settings/print } on-error={');
+  L.push('  :put " ! Container package not available. Install the container"');
+  L.push('  :put "   package for your arch from mikrotik.com/download and reboot."');
+  L.push('  :set problems ($problems + 1)');
+  L.push('}');
+  L.push('# 4. Storage present');
+  L.push(':if ([:len [/file/find where name="'+rsc(c.disk)+'"]] = 0) do={');
+  L.push('  :put " ! Storage '+rsc(c.disk)+' not found. Check /file/print"');
+  L.push('  :set problems ($problems + 1)');
+  L.push('} else={ :put "ok: storage present" }');
+  L.push('# 5. Bridge present');
+  L.push(':if ([:len [/interface/bridge/find where name=$bridgeName]] = 0) do={');
+  L.push('  :put (" ! Bridge " . $bridgeName . " not found. Check /interface/print")');
+  L.push('  :set problems ($problems + 1)');
+  L.push('} else={ :put ("ok: bridge " . $bridgeName . " present") }');
+  L.push('');
+  L.push(':if ($problems > 0) do={');
+  L.push('  :put "Preflight failed - fix the items above and run again."');
+  L.push('  :error "preflight failed"');
+  L.push('}');
+  L.push('');
+  L.push(':put "--- Install ---"');
+  L.push('# Data directory');
+  L.push(':do { /file/add name=$baseDir type=directory } on-error={}');
+  L.push('# Fresh entrypoint.sh from GitHub RAW');
+  L.push(':do { /tool/fetch url=$entrypointUrl dst-path=("$baseDir/entrypoint.sh") mode=https } on-error={');
+  L.push('  :error "failed to download entrypoint.sh - check internet/DNS"');
+  L.push('}');
+  L.push('# Network');
+  L.push(':do { /interface/veth/add name=("veth-" . $containerName) address=("$containerIP/" . $containerMask) gateway=$containerGW } on-error={ :put " ! veth exists, reusing" }');
+  L.push(':do { /interface/bridge/port/add bridge=$bridgeName interface=("veth-" . $containerName) } on-error={}');
+  L.push('# Single mount point (entrypoint.sh + mysql + data + web inside)');
+  L.push(':do { /container/mounts/add name=($containerName . "-data") src=$baseDir dst="/mikrobill-data" } on-error={}');
+  L.push('# Env vars (property is list=, referenced by envlist=)');
+  L.push(':do {');
+  L.push('  /container/envs/add list=$containerName key="DB_NAME" value="mikrobill"');
+  L.push('  /container/envs/add list=$containerName key="DB_USER" value="mikrobill"');
+  if(c.db)L.push('  /container/envs/add list=$containerName key="DB_PASSWORD" value="'+rsc(c.db)+'"');
+  L.push('  /container/envs/add list=$containerName key="ADMIN_LOGIN" value="admin"');
+  if(c.admin)L.push('  /container/envs/add list=$containerName key="ADMIN_PASSWORD" value="'+rsc(c.admin)+'"');
+  L.push('} on-error={}');
+  if(!c.db)L.push('# DB password left empty: entrypoint.sh will auto-generate it into /mikrobill-data/data/secrets/db_password');
+  if(!c.admin)L.push('# Admin password left empty: auto-generated into /mikrobill-data/data/secrets/admin_password');
+  L.push('# Container');
+  L.push(':do { /file/add name=("$baseDir/container") type=directory } on-error={}');
+  L.push('/container/add remote-image=$dockerImage name=$containerName interface=("veth-" . $containerName) envlist=$containerName mounts=($containerName . "-data") root-dir=("$baseDir/container") shm-size=256.0MiB logging=yes start-on-boot=$startBoot');  L.push('# NAT');
+  L.push(':if ($addNat = "yes") do={');
+  L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=80 action=dst-nat to-addresses=$containerIP to-ports=80 comment="MikroBILL HTTP" } on-error={}');
+  L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=443 action=dst-nat to-addresses=$containerIP to-ports=443 comment="MikroBILL HTTPS" } on-error={}');
+  L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=7402 action=dst-nat to-addresses=$containerIP comment="MikroBILL Core" } on-error={}');
+  L.push('}');
+  L.push('');
+  L.push(':put "Installation complete!"');
+  L.push(':put "Watch progress: /log print follow where topics~\\"container\\""');
+  return L.join('\n');
+}
+function buildUninst(c){
+  var L=[],base=c.disk+'/'+c.folder;
+  L.push('# MikroBILL uninstall - config/NAT/veth removed, data kept on disk');
+  L.push(':local containerName "'+rsc(c.name)+'"');
+  L.push(':local baseDir "'+rsc(base)+'"');
+  L.push(':do { /container/stop $containerName } on-error={}');
+  L.push(':do { /container/remove [find where name=$containerName] } on-error={}');
+  L.push(':do { /file/remove [find where name=("$baseDir/container")] } on-error={}');
+  L.push(':do { /container/envs/remove [find where list=$containerName] } on-error={}');
+  L.push(':do { /container/mounts/remove [find where name=($containerName . "-data")] } on-error={}');
+  L.push(':do { /interface/bridge/port/remove [find where interface=("veth-" . $containerName)] } on-error={}');
+  L.push(':do { /interface/veth/remove [find where name=("veth-" . $containerName)] } on-error={}');
+  L.push(':do { /ip/firewall/nat/remove [find where comment~"MikroBILL Core"] } on-error={}');
+  if(c.wipe){
+    L.push('# WARNING: data wipe enabled in the configurator');
+    L.push(':do { /file/remove [find where name=$baseDir] } on-error={}');
+    L.push(':put "Uninstall complete - DATA WIPED"');
+  }else{
+    L.push(':put ("Uninstall complete - data kept in " . $baseDir)');
+  }
+  return L.join('\n');
+}
+function render(){
+  var c=cfg(),errs=validate(c),box=document.getElementById('errors');
+  if(errs.length){
+    box.style.display='block';
+    box.textContent=t('errs')+'\n- '+errs.join('\n- ');
+  }else{box.style.display='none'}
+  document.getElementById('pre-setup').textContent=buildSetup(c);
+  document.getElementById('pre-uninst').textContent=buildUninst(c);
+  ['setup','uninst'].forEach(function(id){
+    var pre=document.getElementById('pre-'+id);
+    if(pre.textContent.split('\n').length>18)pre.classList.add('collapsed');
+  });
+  applyI18n();
+}
+function toggleCollapse(id){
+  var pre=document.getElementById('pre-'+id);
+  pre.classList.toggle('collapsed');
+  applyI18n();
+}
+function copyText(id){
+  var txt=document.getElementById('pre-'+(id==='setup'?'setup':'uninst')).textContent;
+  navigator.clipboard.writeText(txt);
+}
+function download(id){
+  var pre=document.getElementById(id==='setup'?'pre-setup':'pre-uninst');
+  var blob=new Blob([pre.textContent],{type:'text/plain'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(id==='setup'?'setup.rsc':'uninstall.rsc');
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+// init
+document.getElementById('image').value=GH.user+'/'+GH.repo+':latest';
+document.getElementById('entry').value='https://raw.githubusercontent.com/'+GH.user+'/'+GH.repo+'/'+GH.branch+'/entrypoint.sh';
+document.getElementById('storage').addEventListener('change',function(){
+  var custom=(this.value==='__custom');
+  document.getElementById('storageCustom').style.display=custom?'inline-block':'none';
+  render();
+});
+document.querySelectorAll('input,select').forEach(function(el){el.addEventListener('input',render)});
+applyI18n();
+render();
+</script>
+</body>
+</html>
