@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mariadb-server mariadb-client \
     apache2 \
     php php-cli libapache2-mod-php \
-    php-mysql php-curl php-mbstring php-xml php-gmp php-sodium php-common \
+    php-mysql php-curl php-mbstring php-xml php-gmp php-common \
     && rm -rf /var/lib/apt/lists/*
 
 # Настройка PHP и Apache (официальная инструкция)
