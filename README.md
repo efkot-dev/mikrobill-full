@@ -1,205 +1,195 @@
 # MikroBILL All-in-One Docker Image
 
-Полностью контейнеризованная версия MikroBILL для запуска на MikroTik RouterOS 7 x86 или любом другом Docker-хосте.
+Полностью контейнеризованная версия MikroBILL для запуска на MikroTik RouterOS 7 (x86/CHR) или любом другом Docker-хосте.
+Внутри одного образа собрано всё необходимое: MariaDB, Apache 2.4, PHP, .NET 6, acme.sh (Let's Encrypt) и само ядро MikroBILL.
 
-Внутри одного образа:
-
-- MariaDB
-- Apache 2.4
-- PHP
-- .NET 6
-- acme.sh / Let's Encrypt
-- MikroBILL
+Образ автоматически пересобирается GitHub Actions при выходе новых версий на сайте разработчика и публикуется в Docker Hub с тегом в формате `DDMMYYYY` (по дате модификации бинарного файла).
 
 ---
 
 ## Системные требования
 
-Для комфортной работы лучше ориентироваться на рекомендуемые требования:
+Ориентированы на официальную инструкцию, но с учетом оверхеда Docker:
 
-- ОС: UNIX / Docker host
-- RAM: 8GB
-- SSD: 120GB
-
-Минимально производитель заявляет:
-
-- RAM: 1GB
-- HDD: 10GB
-
-Но для Docker-варианта с MariaDB, Apache, PHP и .NET лучше иметь запас по памяти и диску.
-
----
-
-## Переменные окружения
-
-Задаются через `/container envs` в RouterOS или через `-e` в обычном Docker.
-
-| Переменная | Описание | По умолчанию |
+| | Минимальные | Рекомендуемые |
 |---|---|---|
-| `DB_NAME` | Имя базы данных | `mikrobill` |
-| `DB_USER` | Пользователь базы данных | `mikrobill` |
-| `DB_PASSWORD` | Пароль базы данных. Если не задан, будет сгенерирован автоматически | auto |
-| `ADMIN_LOGIN` | Логин администратора MikroBILL | `admin` |
-| `ADMIN_PASSWORD` | Пароль администратора. Если не задан, будет сгенерирован автоматически | auto |
-| `ACME_DOMAIN` | Домен для выпуска SSL-сертификата | пусто |
-| `ACME_EMAIL` | Email для Let's Encrypt | `admin@example.com` |
-| `ACME_STAGING` | Использовать тестовый Let's Encrypt staging. Значение: `yes` или `no` | `no` |
-| `ACME_FORCE` | Принудительно перевыпустить сертификат. Значение: `yes` или `no` | `no` |
-| `ACME_DNS` | DNS-провайдер для acme.sh, например `dns_cf` для Cloudflare | пусто |
+| **ОС** | UNIX / RouterOS 7 (x86) | UNIX / RouterOS 7 (x86) |
+| **RAM** | 2GB | 8GB |
+| **Диск** | 15GB (SSD/HDD) | 120GB (SSD) |
+
+*Внутри контейнера уже настроены: Apache 2.4, PHP (со всеми требуемыми модулями: curl, mbstring, xml, gmp, pdo_mysql), MariaDB и OpenSSL.*
 
 ---
 
-## Где хранятся пароли
+## 🚀 Быстрый старт (Скрипт для MikroTik RouterOS 7)
 
-Если пароль не задан через переменную окружения, он генерируется при первом старте и сохраняется внутри persistent-тома:
+Этот скрипт автоматически создаст папки на диске, настроит виртуальный сетевой интерфейс (veth), добавит его в bridge, создаст точки монтирования, переменные окружения, NAT-правила для проброса портов и запустит контейнер.
 
-```text
-/var/MikroBILL/secrets/db_password
-/var/MikroBILL/secrets/admin_password
-```
+**Инструкция:**
+1. Откройте **New Terminal** в WinBox или WebFig.
+2. Скопируйте код ниже.
+3. **ОБЯЗАТЕЛЬНО** измените значения в блоке `НАСТРОЙКИ` (имя диска, IP-адреса, пароли, домен и ваш логин Docker Hub).
+4. Вставьте в терминал и нажмите `Enter`.
 
-При использовании монтирования в RouterOS это будет примерно:
+```routeros
+# ==========================================
+# MikroBILL Docker Installation Script
+# ==========================================
 
-```text
-disk1/mikrobill/data/secrets/db_password
-disk1/mikrobill/data/secrets/admin_password
+# --- НАСТРОЙКИ (ИЗМЕНИТЕ ПОД СЕБЯ) ---
+:global diskName "disk1"
+:global baseDir "$diskName/mikrobill"
+
+:global containerName "mikrobill"
+:global containerIP "192.168.88.10"
+:global containerMask "24"
+:global containerGW "192.168.88.1"
+:global bridgeName "bridge"
+
+# Укажите ваш образ из Docker Hub (или конкретный тег, например :04102026)
+:global dockerImage "YOUR_DOCKERHUB_USERNAME/mikrobill-full:latest"
+
+:global dbPassword "CHANGE_ME_DB_PASSWORD"
+:global adminPassword "CHANGE_ME_ADMIN_PASSWORD"
+
+:global acmeDomain "billing.example.com"
+:global acmeEmail "admin@example.com"
+# --------------------------------------
+
+:put "Создание директорий на диске $diskName..."
+/file mkdir "$baseDir"
+/file mkdir "$baseDir/mysql"
+/file mkdir "$baseDir/data"
+/file mkdir "$baseDir/web"
+
+:put "Настройка сети (VETH и Bridge)..."
+/interface veth add name="veth-$containerName" address="$containerIP/$containerMask" gateway="$containerGW"
+/interface bridge port add bridge="$bridgeName" interface="veth-$containerName"
+
+:put "Настройка точек монтирования (Mounts)..."
+/container mounts add name="$containerName-mysql" src="$baseDir/mysql" dst="/var/lib/mysql"
+/container mounts add name="$containerName-data" src="$baseDir/data" dst="/var/MikroBILL"
+/container mounts add name="$containerName-web" src="$baseDir/web" dst="/var/www/html"
+
+:put "Настройка переменных окружения..."
+/container envs add name="$containerName" key="DB_NAME" value="mikrobill"
+/container envs add name="$containerName" key="DB_USER" value="mikrobill"
+/container envs add name="$containerName" key="DB_PASSWORD" value="$dbPassword"
+/container envs add name="$containerName" key="ADMIN_LOGIN" value="admin"
+/container envs add name="$containerName" key="ADMIN_PASSWORD" value="$adminPassword"
+/container envs add name="$containerName" key="ACME_DOMAIN" value="$acmeDomain"
+/container envs add name="$containerName" key="ACME_EMAIL" value="$acmeEmail"
+
+:put "Создание и запуск контейнера..."
+/container add remote-image="$dockerImage" name="$containerName" interface="veth-$containerName" envlist="$containerName" mounts="$containerName-mysql,$containerName-data,$containerName-web" logging=yes
+
+:put "Настройка Firewall NAT (Проброс портов)..."
+/ip firewall nat add chain=dstnat protocol=tcp dst-port=80 action=dst-nat to-addresses="$containerIP" to-ports=80 comment="MikroBILL HTTP"
+/ip firewall nat add chain=dstnat protocol=tcp dst-port=443 action=dst-nat to-addresses="$containerIP" to-ports=443 comment="MikroBILL HTTPS"
+/ip firewall nat add chain=dstnat protocol=tcp dst-port=7402-7405 action=dst-nat to-addresses="$containerIP" comment="MikroBILL Core"
+
+:put "✅ Готово! Контейнер запускается."
+:put "Проверьте статус командой: /container print"
+:put "Логи: /container log mikrobill"
 ```
 
 ---
 
-## Точки монтирования
+## 🗑 Скрипт полного удаления (Uninstall)
 
-Для нормальной работы контейнера обязательно нужно сохранить данные на внешнем томе.
+Если вам нужно пересобрать контейнер с нуля или удалить биллинг, используйте этот скрипт. Он безопасно удалит контейнер, интерфейсы, правила фаервола и настройки, **не трогая ваши данные на диске** (`disk1/mikrobill/`).
 
-| Путь внутри контейнера | Назначение |
+```routeros
+:global containerName "mikrobill"
+
+:put "Остановка и удаление контейнера..."
+/container remove [find name="$containerName"]
+
+:put "Удаление переменных окружения..."
+/container envs remove [find name="$containerName"]
+
+:put "Удаление точек монтирования..."
+/container mounts remove [find name~"$containerName"]
+
+:put "Удаление сетевого интерфейса veth..."
+/interface veth remove [find name="veth-$containerName"]
+
+:put "Удаление правил NAT..."
+/ip firewall nat remove [find comment~"MikroBILL"]
+
+:put "✅ Контейнер и настройки удалены. Данные на диске сохранены."
+```
+
+---
+
+## 🔄 Обновление версии
+
+GitHub Actions автоматически собирает новые версии и пушит их в Docker Hub с тегом в формате `DDMMYYYY` (например, `04102026`).
+
+Чтобы обновить MikroBILL на роутере до новой версии:
+1. Посмотрите доступные теги в вашем репозитории на Docker Hub.
+2. Измените параметр `remote-image` в настройках контейнера:
+
+```routeros
+/container set mikrobill remote-image=YOUR_DOCKERHUB_USERNAME/mikrobill-full:04102026
+/container start mikrobill
+```
+
+---
+
+## 🔐 Где найти сгенерированные пароли?
+
+Если вы **не задали** `DB_PASSWORD` или `ADMIN_PASSWORD` в скрипте установки, контейнер сгенерирует их сам при первом запуске и сохранит на диск.
+
+Вы можете прочитать их через терминал RouterOS:
+
+```routeros
+# Пароль от базы данных MariaDB
+/file print file=disk1/mikrobill/data/secrets/db_password
+
+# Пароль от админки MikroBILL
+/file print file=disk1/mikrobill/data/secrets/admin_password
+```
+*(Файлы будут экспортированы в корень диска, их можно открыть через WinBox или скачать по SMB/FTP).*
+
+---
+
+## 📂 Структура данных на диске
+
+Все критически важные данные хранятся на вашем диске (например, `disk1`):
+
+| Путь на RouterOS | Что хранит |
 |---|---|
-| `/var/lib/mysql` | База данных MariaDB |
-| `/var/MikroBILL` | Конфигурация, секреты, сертификаты, данные MikroBILL |
-| `/var/www/html` | WEB-файлы, PHP-интерфейс, ACME webroot |
+| `disk1/mikrobill/mysql` | База данных MariaDB (таблицы, пользователи) |
+| `disk1/mikrobill/data` | Конфиг `MikroBILL.xml`, секреты, SSL-сертификаты Let's Encrypt |
+| `disk1/mikrobill/web` | PHP-файлы веб-интерфейса (копируются из ядра при первом старте) |
+
+Для резервного копирования достаточно регулярно копировать папку `disk1/mikrobill`.
 
 ---
 
-## Пример настройки в MikroTik RouterOS 7
+## 🌐 SSL и Let's Encrypt (ACMEv2)
 
-### 1. Создать каталоги
+Если в скрипте вы указали `acmeDomain` (например, `billing.example.com`), контейнер автоматически попытается выпустить SSL-сертификат через HTTP-01 challenge.
 
+**Требования для успешного выпуска:**
+1. Домен должен смотреть публичным IP на ваш MikroTik.
+2. Порт `80` из интернета должен быть проброшен на IP контейнера (скрипт выше это делает автоматически).
+3. Порт `80` не должен быть занят веб-интерфейсом самого RouterOS (перенесите WinBox/WebFig на другие порты, например 8080/8443).
+
+Если порт 80 открыть нельзя, используйте DNS-01 challenge (например, через Cloudflare). Для этого добавьте переменные в скрипт установки:
 ```routeros
-/file mkdir disk1/mikrobill
-/file mkdir disk1/mikrobill/mysql
-/file mkdir disk1/mikrobill/data
-/file mkdir disk1/mikrobill/web
-```
-
-### 2. Создать mounts
-
-```routeros
-/container mounts add name=mikrobill-mysql src=disk1/mikrobill/mysql dst=/var/lib/mysql
-/container mounts add name=mikrobill-data src=disk1/mikrobill/data dst=/var/MikroBILL
-/container mounts add name=mikrobill-web src=disk1/mikrobill/web dst=/var/www/html
-```
-
-### 3. Создать переменные окружения
-
-```routeros
-/container envs add name=mikrobill key=DB_NAME value=mikrobill
-/container envs add name=mikrobill key=DB_USER value=mikrobill
-/container envs add name=mikrobill key=DB_PASSWORD value=CHANGE_ME_DB_PASSWORD
-
-/container envs add name=mikrobill key=ADMIN_LOGIN value=admin
-/container envs add name=mikrobill key=ADMIN_PASSWORD value=CHANGE_ME_ADMIN_PASSWORD
-
-/container envs add name=mikrobill key=ACME_DOMAIN value=billing.example.com
-/container envs add name=mikrobill key=ACME_EMAIL value=admin@example.com
-```
-
-### 4. Добавить контейнер
-
-```routeros
-/container add remote-image=YOUR_DOCKERHUB_USERNAME/mikrobill-full:latest \
-    name=mikrobill \
-    interface=veth-mikrobill \
-    envlist=mikrobill \
-    mounts=mikrobill-mysql,mikrobill-data,mikrobill-web
+/container envs add name="mikrobill" key="ACME_DNS" value="dns_cf"
+/container envs add name="mikrobill" key="CF_Token" value="YOUR_TOKEN"
+/container envs add name="mikrobill" key="CF_Account_ID" value="YOUR_ID"
 ```
 
 ---
 
-## Порты
-
-Обычно используются:
+## 📡 Порты
 
 | Порт | Назначение |
 |---|---|
 | `80` | HTTP / ACME HTTP-01 challenge |
-| `443` | HTTPS |
+| `443` | HTTPS (Веб-интерфейс) |
 | `7402-7405` | Ядро MikroBILL / MikroREMOTE |
-
----
-
-## SSL / ACME
-
-Если задать:
-
-```text
-ACME_DOMAIN=billing.example.com
-ACME_EMAIL=admin@example.com
-```
-
-контейнер попытается выпустить сертификат Let's Encrypt через HTTP-01.
-
-Для этого нужно:
-
-1. Домен должен указывать на публичный IP MikroTik.
-2. Порт `80` должен быть проброшен в контейнер.
-3. Порт `80` не должен конфликтовать с веб-интерфейсом самого RouterOS.
-
-Если порт `80` открыть нельзя, можно использовать DNS-01 через `ACME_DNS`.
-
-Например, для Cloudflare:
-
-```routeros
-/container envs add name=mikrobill key=ACME_DNS value=dns_cf
-/container envs add name=mikrobill key=CF_Token value=YOUR_CLOUDFLARE_TOKEN
-/container envs add name=mikrobill key=CF_Account_ID value=YOUR_CLOUDFLARE_ACCOUNT_ID
-```
-
----
-
-## Обновление
-
-Проект использует GitHub Actions.
-
-Workflow по расписанию:
-
-1. Скачивает архив MikroBILL.
-2. Определяет дату бинарного файла внутри архива.
-3. Делает тег вида `DDMMYYYY`, например `04102026`.
-4. Если такого тега еще нет в Docker Hub, собирает и публикует образ.
-5. Создает GitHub Release с архивом.
-
-Примеры тегов:
-
-```text
-YOUR_DOCKERHUB_USERNAME/mikrobill-full:latest
-YOUR_DOCKERHUB_USERNAME/mikrobill-full:04102026
-```
-
----
-
-## Резервное копирование
-
-Достаточно регулярно копировать три каталога:
-
-```text
-disk1/mikrobill/mysql
-disk1/mikrobill/data
-disk1/mikrobill/web
-```
-
-В них находятся:
-
-- база данных;
-- конфигурация MikroBILL;
-- секреты;
-- SSL-сертификаты;
-- WEB-файлы.
