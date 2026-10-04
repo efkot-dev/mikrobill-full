@@ -1,0 +1,103 @@
+name: Auto Release MikroBILL
+
+on:
+  schedule:
+    # Запуск каждый день в 03:00 UTC (можете изменить cron под себя)
+    - cron: '0 3 * * *'
+  workflow_dispatch: # Кнопка для ручного запуска во вкладке Actions
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      hash: ${{ steps.check.outputs.hash }}
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - name: Download archive
+        run: |
+          wget -q -O stable.zip https://mikro-bill.com/downloads/stable
+          
+      - name: Extract version from DLL/EXE date
+        id: check
+        run: |
+          HASH=$(sha256sum stable.zip | awk '{print $1}')
+          
+          # Ищем дату модификации MikroBILL.dll или .exe внутри архива
+          # unzip -l выводит: "  Length      Date    Time    Name"
+          # awk '{print $2}' забирает дату в формате YYYY-MM-DD
+          DATE_STR=$(unzip -l stable.zip | grep -iE "MikroBILL\.(dll|exe)" | head -n 1 | awk '{print $2}')
+          
+          if [ -n "$DATE_STR" ]; then
+            # Преобразуем YYYY-MM-DD в DDMMYYYY (например, 2026-10-04 -> 04102026)
+            VERSION=$(date -d "$DATE_STR" +"%d%m%Y")
+            echo "Found date in binary: $DATE_STR -> Docker Tag: $VERSION"
+          else
+            # Fallback: если файл не найден, используем первые 8 символов хэша
+            VERSION="sha-${HASH:0:8}"
+            echo "Binary not found in archive, using hash: $VERSION"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+          
+          # Проверяем, существует ли уже такой тег в Docker Hub
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/mikrobill-full/tags/${VERSION}")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "build=false" >> $GITHUB_OUTPUT
+            echo "✅ Version $VERSION already exists on Docker Hub. Skipping build."
+          else
+            echo "build=true" >> $GITHUB_OUTPUT
+            echo "🚀 New version $VERSION found! Triggering build."
+          fi
+
+      - name: Upload artifact
+        if: steps.check.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-zip
+          path: stable.zip
+
+  build-and-push:
+    needs: check-version
+    if: needs.check-version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download stable.zip
+        uses: actions/download-artifact@v4
+        with:
+          name: stable-zip
+          path: .
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/mikrobill-full:${{ needs.check-version.outputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/mikrobill-full:latest
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: Release ${{ needs.check-version.outputs.version }}
+          body: |
+            Auto-release for MikroBILL based on binary modification date.
+            **Tag:** `${{ needs.check-version.outputs.version }}`
+            **SHA256:** `${{ needs.check-version.outputs.hash }}`
+          files: stable.zip
