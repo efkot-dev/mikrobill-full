@@ -46,6 +46,12 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh &&
     ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet && \
     rm /tmp/dotnet-install.sh
 
+# Дистрибутив MikroBILL внутри образа
+COPY stable.zip /tmp/stable.zip
+RUN mkdir -p /opt/mikrobill-installer && \
+    unzip -o /tmp/stable.zip -d /opt/mikrobill-installer && \
+    rm -f /tmp/stable.zip
+
 # acme.sh для встроенного в MikroBILL Let's Encrypt
 RUN curl -fsSL https://get.acme.sh | sh -s email=acme@example.com
 
