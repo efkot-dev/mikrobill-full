@@ -276,7 +276,7 @@ function buildSetup(c){
   if(!c.admin)L.push('# Admin password left empty: auto-generated into /mikrobill-data/data/secrets/admin_password');
   L.push('# Container');
   L.push(':do { /file/add name=("$baseDir/container") type=directory } on-error={}');
-  L.push('/container/add remote-image=$dockerImage name=$containerName interface=("veth-" . $containerName) envlist=$containerName mounts=($containerName . "-data") root-dir=("$baseDir/container") shm-size=256.0MiB logging=yes start-on-boot=$startBoot');  L.push(':if ($addNat = "yes") do={');
+  L.push('/container/add remote-image=$dockerImage name=$containerName interface=("veth-" . $containerName) envlist=$containerName mountlists=($containerName . "-data") root-dir=("$baseDir/container") shm-size=256.0MiB logging=yes start-on-boot=$startBoot');  L.push(':if ($addNat = "yes") do={');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=80 action=dst-nat to-addresses=$containerIP to-ports=80 comment="MikroBILL HTTP" } on-error={}');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=443 action=dst-nat to-addresses=$containerIP to-ports=443 comment="MikroBILL HTTPS" } on-error={}');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=7402 action=dst-nat to-addresses=$containerIP comment="MikroBILL Core" } on-error={}');
