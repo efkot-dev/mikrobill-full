@@ -49,8 +49,7 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh &&
 # acme.sh для встроенного в MikroBILL Let's Encrypt
 RUN curl -fsSL https://get.acme.sh | sh -s email=acme@example.com
 
-# Убираем ENTRYPOINT отсюда! Его задаст RouterOS.
-#COPY entrypoint.sh /entrypoint.sh
-#RUN chmod +x /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 80 443 7402
