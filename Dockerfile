@@ -30,8 +30,6 @@ RUN set -eux; \
     sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf; \
     echo "ServerName localhost" > /etc/apache2/conf-available/servername.conf; \
     a2enconf servername; \
-    echo "Alias /.well-known/acme-challenge /var/www/letsencrypt/.well-known/acme-challenge\n<Directory /var/www/letsencrypt/.well-known/acme-challenge>\n    Options -Indexes\n    AllowOverride None\n    Require all granted\n</Directory>" > /etc/apache2/conf-available/acme.conf && \
-    a2enconf acme; \
     mkdir -p \
         /var/www/html \
         /var/www/letsencrypt/.well-known/acme-challenge \
@@ -48,20 +46,11 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh &&
     ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet && \
     rm /tmp/dotnet-install.sh
 
-# acme.sh для ACMEv2 / Let's Encrypt
+# acme.sh для встроенного в MikroBILL Let's Encrypt
 RUN curl -fsSL https://get.acme.sh | sh -s email=acme@example.com
 
-# Копируем архив, который заранее скачал GitHub Actions
-COPY stable.zip /tmp/stable.zip
+# Убираем ENTRYPOINT отсюда! Его задаст RouterOS.
+#COPY entrypoint.sh /entrypoint.sh
+#RUN chmod +x /entrypoint.sh
 
-# Распаковываем установщик
-RUN mkdir -p /opt/mikrobill-installer && \
-    unzip -o /tmp/stable.zip -d /opt/mikrobill-installer && \
-    rm /tmp/stable.zip
-
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-EXPOSE 80 443 7402 7403 7404 7405
-
-ENTRYPOINT ["/entrypoint.sh"]
+EXPOSE 80 443 7402
