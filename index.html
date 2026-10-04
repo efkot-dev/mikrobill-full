@@ -230,7 +230,7 @@ function buildSetup(c){
   L.push('  :set problems ($problems + 1)');
   L.push('} else={ :put "ok: DNS configured" }');
   L.push('# 3. Container package present');
-  L.push(':do { /container/settings/print } on-error={');
+  L.push(':do { /container/config/print } on-error={');
   L.push('  :put " ! Container package not available. Install the container"');
   L.push('  :put "   package for your arch from mikrotik.com/download and reboot."');
   L.push('  :set problems ($problems + 1)');
