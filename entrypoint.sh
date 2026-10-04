@@ -1,4 +1,10 @@
 #!/bin/bash
+# If a newer entrypoint.sh exists on mounted storage - use it (no image rebuild needed)
+if [ -f /mikrobill-data/entrypoint.sh ] && [ "${MB_ENTRYPOINT_EXTERNAL:-0}" != "1" ]; then
+    echo "External entrypoint.sh found on mounted storage - using it"
+    export MB_ENTRYPOINT_EXTERNAL=1
+    exec bash /mikrobill-data/entrypoint.sh
+fi
 set -u
 
 # --- Магия единой точки монтирования ---
