@@ -5,7 +5,7 @@
 `entrypoint.sh` на диске роутера (правится без пересборки образа).
 
 ## Конфигуратор и генератор скриптов
-**https://efkot.github.io/mikrobill-full/** — заполняет поля и отдаёт готовые
+**https://efkot-dev.github.io/mikrobill-full/** — заполняет поля и отдаёт готовые
 `setup.rsc` / uninstall-блок под ваш диск, IP, bridge и пароли.
 
 ## Установка
