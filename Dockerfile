@@ -58,6 +58,6 @@ RUN curl -fsSL https://get.acme.sh | sh -s email=acme@example.com
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 80 443 7402
+EXPOSE 80 443 7402 3306
 
 ENTRYPOINT ["/entrypoint.sh"]
