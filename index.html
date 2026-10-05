@@ -33,12 +33,12 @@ h2{font-size:15px;margin:0 0 8px}
 <body>
 <div class="wrap">
 <button class="sec lang" id="langBtn" onclick="setLang(cur==='ru'?'en':'ru')">EN</button>
-<h1 id="t_title"></h1>
-<p class="sub" id="t_sub"></p>
+<h1 data-i18n="title"></h1>
+<p class="sub" data-i18n="sub"></p>
 
 <div class="card">
  <div class="grid">
-  <label><span id="l_storage"></span>
+  <label><span data-i18n="storage"></span>
    <select id="storage">
     <option value="disk1">disk1/ — internal (default)</option>
     <option value="usb1">usb1/ — USB flash</option>
@@ -46,200 +46,212 @@ h2{font-size:15px;margin:0 0 8px}
     <option value="usb2">usb2/ — USB flash (2nd)</option>
     <option value="sd1">sd1/ — SD / microSD</option>
     <option value="nvme1">nvme1/ — NVMe SSD</option>
+    <option value="sata1">sata1/ — SATA drive</option>
     <option value="__custom">... custom</option>
    </select></label>
-  <label><span id="l_custom"></span><input id="storageCustom" style="display:none"></label>
+  <label><span data-i18n="custom"></span><input id="storageCustom" style="display:none" placeholder="raid-array1"></label>
  </div>
  <div class="grid3" style="margin-top:10px">
-  <label><span id="l_folder"></span><input id="folder" value="mikrobill"></label>
-  <label><span id="l_name"></span><input id="cname" value="mikrobill"></label>
-  <label><span id="l_bridge"></span><input id="bridge" value="bridge"></label>
+  <label><span data-i18n="folder"></span><input id="folder" value="mikrobill"></label>
+  <label><span data-i18n="name"></span><input id="cname" value="mikrobill"></label>
+  <label><span data-i18n="bridge"></span><input id="bridge" value="bridge"></label>
  </div>
  <div class="grid3" style="margin-top:10px">
-  <label><span id="l_ip"></span><input id="ip" value="192.168.88.10"></label>
-  <label><span id="l_mask"></span><input id="mask" value="24"></label>
-  <label><span id="l_gw"></span><input id="gw" value="192.168.88.1"></label>
+  <label><span data-i18n="ip"></span><input id="ip" value="192.168.88.10"></label>
+  <label><span data-i18n="mask"></span><input id="mask" value="24"></label>
+  <label><span data-i18n="gw"></span><input id="gw" value="192.168.88.1"></label>
  </div>
  <div class="grid" style="margin-top:10px">
-  <label><span id="l_image"></span><input id="image" value=""></label>
-  <label><span id="l_entry"></span><input id="entry" value=""></label>
- </div>
- <div class="grid" style="margin-top:10px">
-  <label><span id="l_db"></span><input id="dbpass" value=""></label>
-  <label><span id="l_admin"></span><input id="adminpass" value=""></label>
+  <label><span data-i18n="db"></span><input id="dbpass" type="text" autocomplete="off"></label>
+  <label><span data-i18n="admin"></span><input id="adminpass" type="text" autocomplete="off"></label>
  </div>
  <div class="grid3" style="margin-top:10px">
-  <label class="chk"><input type="checkbox" id="nat" checked><span id="l_nat"></span></label>
-  <label class="chk"><input type="checkbox" id="boot" checked><span id="l_boot"></span></label>
-  <label class="chk"><input type="checkbox" id="wipe"><span id="l_wipe"></span></label>
+  <label class="chk"><input type="checkbox" id="nat" checked><span data-i18n="nat"></span></label>
+  <label class="chk"><input type="checkbox" id="boot" checked><span data-i18n="boot"></span></label>
  </div>
+ <p class="hint" style="margin-top:10px" data-i18n="noteImage"></p>
 </div>
 
 <div id="errors" class="err" style="display:none"></div>
 
 <div class="card">
- <h2 id="t_out1"></h2>
+ <h2 data-i18n="out1"></h2>
  <div class="btns">
-  <button onclick="copyText('setup')">—</button>
-  <button class="sec" onclick="download('setup')">—</button>
-  <button class="sec" onclick="toggleCollapse('setup')">—</button>
+  <button onclick="copyText('pre-setup')" data-i18n="copy"></button>
+  <button class="sec" onclick="download('pre-setup','setup.rsc')" data-i18n="dl"></button>
+  <button class="sec" id="tg-setup" onclick="toggleCollapse('pre-setup','tg-setup')"></button>
  </div>
  <pre id="pre-setup" spellcheck="false"></pre>
 </div>
 
 <div class="card">
- <h2 id="t_out2"></h2>
+ <h2 data-i18n="out2"></h2>
  <div class="btns">
-  <button onclick="copyText('uninst')">—</button>
-  <button class="sec" onclick="download('uninst')">—</button>
-  <button class="sec" onclick="toggleCollapse('uninst')">—</button>
+  <button onclick="copyText('pre-uninst')" data-i18n="copy"></button>
+  <button class="sec" onclick="download('pre-uninst','uninstall.rsc')" data-i18n="dl"></button>
+  <button class="sec" id="tg-uninst" onclick="toggleCollapse('pre-uninst','tg-uninst')"></button>
  </div>
  <pre id="pre-uninst" spellcheck="false"></pre>
 </div>
 
-<p class="hint" id="t_how"></p>
+<div class="card">
+ <h2 data-i18n="out3"></h2>
+ <div class="btns">
+  <button onclick="copyText('pre-diag')" data-i18n="copy"></button>
+  <button class="sec" onclick="download('pre-diag','check.rsc')" data-i18n="dl"></button>
+ </div>
+ <p class="hint" data-i18n="diagNote"></p>
+ <pre id="pre-diag" spellcheck="false"></pre>
+</div>
+
+<p class="hint" data-i18n="how"></p>
 </div>
 
 <script>
-// ==== repo auto-detect (GitHub Pages) ====
-var GH={user:'efkot',repo:'mikrobill-full',branch:'main'};
-(function(){
+'use strict';
+var cur='ru';
+var GH=(function(){
+  var u='efkot', r='mikrobill-full', b='main';
   try{
     var h=location.hostname.split('.');
-    if(h.length>=3&&h[1]==='github'&&h[2]==='io'){
-      GH.user=h[0];
-      GH.repo=location.pathname.split('/')[1]||GH.repo;
-    }
+    if(h.length>=3 && h[1]==='github' && h[2]==='io'){ u=h[0]; r=location.pathname.split('/')[1]||r; }
   }catch(e){}
+  return {user:u, repo:r, branch:b};
 })();
+var DOCKER_IMAGE='registry-1.docker.io/efkot/mikrobill-full:latest';
+var ENTRYPOINT_URL='https://raw.githubusercontent.com/'+GH.user+'/'+GH.repo+'/'+GH.branch+'/entrypoint.sh';
 
-var cur='ru';
 var I18N={
 ru:{
  title:'MikroBILL — генератор скриптов для RouterOS 7',
- sub:'Заполните параметры — скрипты ниже обновятся мгновенно. Всё считается локально в браузере, ничего никуда не отправляется.',
- storage:'Хранилище контейнера',custom:'Свой диск/путь',folder:'Папка с данными',name:'Имя контейнера',
- bridge:'Bridge',ip:'IP контейнера',mask:'Маска',gw:'Шлюз',image:'Образ Docker Hub',
- entry:'URL entrypoint.sh (RAW GitHub)',db:'Пароль БД (пусто = автогенерация)',
- admin:'Пароль админа (пусто = автогенерация)',nat:'NAT-правила (80, 443, 7402-7405)',
- boot:'start-on-boot',wipe:'uninstall: удалить данные!',
- out1:'Шаг 1 — setup.rsc (установка)',out2:'Шаг 2 — uninstall.rsc (удаление)',
- copy:'Скопировать',dl:'Скачать',collapse:'Свернуть',expand:'Развернуть',errs:'Ошибки:',
- how:'Как применить: скачайте setup.rsc, загрузите его в Files роутера (WinBox/FTP) и выполните /import file=setup.rsc. Логи установки: /log print follow where topics~"container". Порты 80/443 не должны быть заняты сервисом www самого RouterOS, иначе ACME не пройдёт: /ip service set www disabled=yes.',
- eIP:'Некорректный IPv4 адрес',eMask:'Маска: число 1-32',eName:'Имя/папка: латиница, цифры, - _ (1-30)',
- eImage:'Образ должен содержать /',eUrl:'URL entrypoint.sh должен начинаться с https://',eBridge:'Укажите bridge'
+ sub:'Заполните параметры — скрипты ниже обновляются мгновенно. Всё считается локально в браузере.',
+ storage:'Хранилище контейнера', custom:'Свой диск/путь', folder:'Папка с данными', name:'Имя контейнера',
+ bridge:'Bridge', ip:'IP контейнера', mask:'Маска', gw:'Шлюз',
+ db:'Пароль БД (пусто = автогенерация)', admin:'Пароль админа (пусто = автогенерация)',
+ nat:'NAT-правила (80, 443, 3306, 7402)', boot:'start-on-boot',
+ noteImage:'Образ и entrypoint фиксированы: '+DOCKER_IMAGE+' (полный URL реестра, registry-url не трогаем); entrypoint.sh берётся с RAW GitHub. Логин админа по умолчанию: Admin.',
+ out1:'Шаг 1 — setup.rsc (установка)', out2:'Шаг 2 — uninstall.rsc (удаление, данные сохраняются)',
+ out3:'Проверка роутера (ничего не меняет)',
+ copy:'Скопировать', dl:'Скачать', collapse:'Свернуть', expand:'Развернуть', errs:'Ошибки:',
+ diagNote:'Читает и печатает, ничего не меняет. /disk/test — только чтение, ~10 с нагрузки на диск; запускайте в простое.',
+ how:'Как применить: скачайте setup.rsc, загрузите в Files роутера (WinBox/FTP) и выполните /import file=setup.rsc. Логи: /log print follow where topics~"container". Порты 80/443 не должны быть заняты сервисом www RouterOS: /ip service set www disabled=yes.'
 },
 en:{
  title:'MikroBILL — RouterOS 7 script generator',
  sub:'Fill in the parameters - the scripts below update instantly. Everything is processed locally in your browser.',
- storage:'Container storage',custom:'Custom disk/path',folder:'Data folder',name:'Container name',
- bridge:'Bridge',ip:'Container IP',mask:'Mask',gw:'Gateway',image:'Docker Hub image',
- entry:'entrypoint.sh URL (GitHub RAW)',db:'DB password (empty = auto-generate)',
- admin:'Admin password (empty = auto-generate)',nat:'NAT rules (80, 443, 7402-7405)',
- boot:'start-on-boot',wipe:'uninstall: wipe data!',
- out1:'Step 1 - setup.rsc (install)',out2:'Step 2 - uninstall.rsc (removal)',
- copy:'Copy',dl:'Download',collapse:'Collapse',expand:'Expand',errs:'Errors:',
- how:'How to apply: download setup.rsc, upload it to the router Files (WinBox/FTP) and run /import file=setup.rsc. Install logs: /log print follow where topics~"container". Ports 80/443 must not be taken by the RouterOS www service or ACME will fail: /ip service set www disabled=yes.',
- eIP:'Invalid IPv4 address',eMask:'Mask: number 1-32',eName:'Name/folder: letters, digits, - _ (1-30)',
- eImage:'Image must contain /',eUrl:'entrypoint.sh URL must start with https://',eBridge:'Bridge required'
+ storage:'Container storage', custom:'Custom disk/path', folder:'Data folder', name:'Container name',
+ bridge:'Bridge', ip:'Container IP', mask:'Mask', gw:'Gateway',
+ db:'DB password (empty = auto-generate)', admin:'Admin password (empty = auto-generate)',
+ nat:'NAT rules (80, 443, 3306, 7402)', boot:'start-on-boot',
+ noteImage:'Image and entrypoint are fixed: '+DOCKER_IMAGE+' (full registry URL, registry-url untouched); entrypoint.sh comes from GitHub RAW. Default admin login: Admin.',
+ out1:'Step 1 - setup.rsc (install)', out2:'Step 2 - uninstall.rsc (removal, data kept)',
+ out3:'Router check (changes nothing)',
+ copy:'Copy', dl:'Download', collapse:'Collapse', expand:'Expand', errs:'Errors:',
+ diagNote:'Reads and prints, changes nothing. /disk/test is read-only, ~10 s of disk load; run it while idle.',
+ how:'How to apply: download setup.rsc, upload it to router Files (WinBox/FTP) and run /import file=setup.rsc. Logs: /log print follow where topics~"container". Ports 80/443 must not be taken by the RouterOS www service: /ip service set www disabled=yes.'
 }};
 function t(k){return (I18N[cur]&&I18N[cur][k])||I18N.en[k]||k}
-function setLang(l){cur=l;applyI18n();render()}
+function setLang(l){cur=l;applyI18n();render();}
 function applyI18n(){
+  var els=document.querySelectorAll('[data-i18n]');
+  for(var i=0;i<els.length;i++) els[i].textContent=t(els[i].getAttribute('data-i18n'));
   document.getElementById('langBtn').textContent=(cur==='ru'?'EN':'RU');
-  ['title','sub','storage','custom','folder','name','bridge','ip','mask','gw','image','entry','db','admin','nat','boot','wipe','out1','out2','how'].forEach(function(k){
-    var el=document.getElementById((['title','sub','how'].indexOf(k)>=0?'t_':'l_')+k);
-    if(el)el.textContent=t(k);
-  });
-  document.querySelectorAll('.btns').forEach(function(b,i){
-    b.children[0].textContent=t('copy');
-    b.children[1].textContent=t('dl');
-    b.children[2].textContent=document.getElementById(i===0?'pre-setup':'pre-uninst').classList.contains('collapsed')?t('expand'):t('collapse');
-  });
+  document.documentElement.lang=cur;
+  applyCollapse('pre-setup','tg-setup');
+  applyCollapse('pre-uninst','tg-uninst');
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function rsc(s){return String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"')}
-function isIP(s){var m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);if(!m)return false;
-  for(var i=1;i<=4;i++){if(Number(m[i])>255)return false}return true}
-function getDisk(){
-  var v=document.getElementById('storage').value;
-  if(v==='__custom'){return document.getElementById('storageCustom').value.trim()||'disk1'}
-  return v;
-}
+function isIP(s){var m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);if(!m)return false;for(var i=1;i<=4;i++){if(Number(m[i])>255)return false}return true}
+function isName(s){return /^[a-zA-Z0-9_-]{1,30}$/.test(s)}
+function val(id){return document.getElementById(id).value.trim()}
 function cfg(){
-  return{
-    disk:getDisk(),
-    folder:document.getElementById('folder').value.trim(),
-    name:document.getElementById('cname').value.trim(),
-    bridge:document.getElementById('bridge').value.trim(),
-    ip:document.getElementById('ip').value.trim(),
-    mask:document.getElementById('mask').value.trim(),
-    gw:document.getElementById('gw').value.trim(),
-    image:document.getElementById('image').value.trim(),
-    entry:document.getElementById('entry').value.trim(),
-    db:document.getElementById('dbpass').value,
-    admin:document.getElementById('adminpass').value,
-    nat:document.getElementById('nat').checked?'yes':'no',
-    boot:document.getElementById('boot').checked?'yes':'no',
-    wipe:document.getElementById('wipe').checked
-  };
+  var sel=val('storage');
+  var disk=(sel==='__custom')?(val('storageCustom')||'disk1'):sel;
+  return {disk:disk, folder:val('folder'), name:val('cname'), bridge:val('bridge'),
+          ip:val('ip'), mask:val('mask'), gw:val('gw'),
+          db:document.getElementById('dbpass').value,
+          admin:document.getElementById('adminpass').value,
+          nat:document.getElementById('nat').checked,
+          boot:document.getElementById('boot').checked};
 }
 function validate(c){
   var e=[];
-  if(!isIP(c.ip)||!isIP(c.gw))e.push(t('eIP'));
-  if(!/^\d{1,2}$/.test(c.mask)||Number(c.mask)<1||Number(c.mask)>32)e.push(t('eMask'));
-  if(!/^[a-zA-Z0-9_-]{1,30}$/.test(c.name)||!/^[a-zA-Z0-9_-]{1,30}$/.test(c.folder))e.push(t('eName'));
-  if(!c.bridge)e.push(t('eBridge'));
-  if(c.image.indexOf('/')<0)e.push(t('eImage'));
-  if(c.entry.indexOf('https://')!==0)e.push(t('eUrl'));
+  if(!isName(c.disk)) e.push('disk: '+c.disk);
+  if(!isName(c.folder)) e.push(t('folder')+': '+c.folder);
+  if(!isName(c.name)) e.push(t('name')+': '+c.name);
+  if(!isName(c.bridge)) e.push(t('bridge')+': '+c.bridge);
+  if(!isIP(c.ip)||!isIP(c.gw)) e.push(t('ip')+' / '+t('gw'));
+  if(!/^\d{1,2}$/.test(c.mask)||Number(c.mask)<1||Number(c.mask)>32) e.push(t('mask'));
   return e;
 }
+
+function clockLines(){
+  return [
+    ':local yr [:tonum [:pick [/system/clock/get date] 0 4]]',
+    ':if ([:typeof $yr] = "nil" or $yr < 2024) do={',
+    '  :put (" ! Clock says " . [/system/clock/get date] . " - fix it first:")',
+    '  :put "   /system/ntp/client/set enabled=yes servers=216.239.35.0,162.159.200.1"',
+    '  :set problems ($problems + 1)',
+    '} else={ :put "ok: clock looks sane" }'
+  ];
+}
+function dnsLines(){
+  return [
+    ':if ([:len [/ip/dns/get servers]] = 0) do={',
+    '  :put " ! No DNS servers configured. Example:"',
+    '  :put "   /ip/dns/set servers=8.8.8.8,1.1.1.1"',
+    '  :set problems ($problems + 1)',
+    '} else={ :put "ok: DNS configured" }'
+  ];
+}
+
 function buildSetup(c){
-  var L=[],base=c.disk+'/'+c.folder,veth='veth-'+c.name,mnt=c.name+'-data';
+  var L=[], ts=new Date().toISOString().slice(0,19).replace('T',' ');
   L.push('# ============================================================');
   L.push('# MikroBILL install script for RouterOS 7 (no Cyrillic: UTF-8 safe)');
-  L.push('# Generated: '+new Date().toISOString());
-  L.push('# Storage: '+base+' | Container: '+c.name+' @ '+c.ip+'/'+c.mask+' gw '+c.gw);
-  L.push('# Image: '+c.image+' (approx 350 MB, needs free space)');
+  L.push('# Generated: '+ts);
+  L.push('# Storage: '+c.disk+'/'+c.folder+' | Container: '+c.name+' @ '+c.ip+'/'+c.mask+' gw '+c.gw);
+  L.push('# Image: '+DOCKER_IMAGE);
   L.push('# ============================================================');
   L.push('');
   L.push(':local problems 0');
-  L.push(':local baseDir "'+rsc(base)+'"');
-  L.push(':local containerName "'+rsc(c.name)+'"');
-  L.push(':local containerIP "'+rsc(c.ip)+'"');
-  L.push(':local containerMask "'+rsc(c.mask)+'"');
-  L.push(':local containerGW "'+rsc(c.gw)+'"');
-  L.push(':local bridgeName "'+rsc(c.bridge)+'"');
-  L.push(':local dockerImage "'+rsc(c.image)+'"');
-  L.push(':local entrypointUrl "'+rsc(c.entry)+'"');
-  L.push(':local addNat "'+c.nat+'"');
-  L.push(':local startBoot "'+c.boot+'"');
+  L.push(':local disk "'+c.disk+'"');
+  L.push(':local baseDir "'+c.disk+'/'+c.folder+'"');
+  L.push(':local containerName "'+c.name+'"');
+  L.push(':local containerIP "'+c.ip+'"');
+  L.push(':local containerMask "'+c.mask+'"');
+  L.push(':local containerGW "'+c.gw+'"');
+  L.push(':local bridgeName "'+c.bridge+'"');
+  L.push(':local dockerImage "'+DOCKER_IMAGE+'"');
+  L.push(':local entrypointUrl "'+ENTRYPOINT_URL+'"');
+  L.push(':local mntList "'+c.name+'-data"');
+  L.push(':local addNat "'+(c.nat?'yes':'no')+'"');
+  L.push(':local startBoot "'+(c.boot?'yes':'no')+'"');
   L.push('');
   L.push(':put "--- Preflight ---"');
-  L.push('# 1. Clock: https downloads and TLS fail with a wrong date');
-  L.push(':local yr [:tonum [:pick [/system/clock/get date] 0 4]]');
-  L.push(':if ([:typeof $yr] = "nil" or $yr < 2024) do={');
-  L.push('  :put (" ! Clock says " . [/system/clock/get date] . " - fix it first:")');
-  L.push('  :put "   /system/ntp/client/set enabled=yes servers=216.239.35.0,162.159.200.1"');
-  L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put "ok: clock looks sane" }');
+  L.push('# 1. Clock: https fetch and TLS fail with a wrong date');
+  L.push.apply(L,clockLines());
   L.push('# 2. DNS: needed to pull the image and fetch entrypoint.sh');
-  L.push(':if ([:len [/ip/dns/get servers]] = 0) do={');
-  L.push('  :put " ! No DNS servers configured. Example:"');
-  L.push('  :put "   /ip/dns/set servers=8.8.8.8,1.1.1.1"');
-  L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put "ok: DNS configured" }');
+  L.push.apply(L,dnsLines());
   L.push('# 3. Container package present');
-  L.push(':do { /container/config/print } on-error={');
+  L.push(':do { /container/settings/print } on-error={');
   L.push('  :put " ! Container package not available. Install the container"');
   L.push('  :put "   package for your arch from mikrotik.com/download and reboot."');
   L.push('  :set problems ($problems + 1)');
   L.push('}');
-  L.push('# 4. Storage present');
-  L.push(':if ([:len [/file/find where name="'+rsc(c.disk)+'"]] = 0) do={');
-  L.push('  :put " ! Storage '+rsc(c.disk)+' not found. Check /file/print"');
+  L.push('# 4. Storage present + free space');
+  L.push(':if ([:len [/file/find where name=$disk]] = 0) do={');
+  L.push('  :put (" ! Storage " . $disk . " not found. Check /file/print")');
   L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put "ok: storage present" }');
+  L.push('} else={ :put ("ok: storage " . $disk . " present") }');
+  L.push(':local freeB 0');
+  L.push(':do { :set freeB [/disk/get [find where mount-point=$disk] free] } on-error={}');
+  L.push(':if ($freeB = 0) do={ :do { :set freeB [/system/resource/get free-hdd-space] } on-error={} }');
+  L.push(':if ($freeB > 0 and $freeB < 1073741824) do={');
+  L.push('  :put (" ! Only " . ($freeB / 1048576) . " MB free - image+DB need 1 GB+")');
+  L.push('  :set problems ($problems + 1)');
+  L.push('} else={ :if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free") } }');
   L.push('# 5. Bridge present');
   L.push(':if ([:len [/interface/bridge/find where name=$bridgeName]] = 0) do={');
   L.push('  :put (" ! Bridge " . $bridgeName . " not found. Check /interface/print")');
@@ -252,103 +264,162 @@ function buildSetup(c){
   L.push('}');
   L.push('');
   L.push(':put "--- Install ---"');
-  L.push('# Data directory');
   L.push(':do { /file/add name=$baseDir type=directory } on-error={}');
+  L.push(':do { /file/add name=($baseDir . "/container") type=directory } on-error={}');
+  L.push('# Write probe: the disk must actually accept files');
+  L.push(':local probe ($baseDir . "/.write-probe")');
+  L.push(':do {');
+  L.push('  /file/add name=$probe contents="ok"');
+  L.push('  :local c [/file/get [find where name=$probe] contents]');
+  L.push('  /file/remove [find where name=$probe]');
+  L.push('  :if ($c != "ok") do={ :error "write probe mismatch" }');
+  L.push('  :put "ok: storage is writable"');
+  L.push('} on-error={');
+  L.push('  :put " ! write probe FAILED - check mount/permissions"');
+  L.push('  :error "storage not writable"');
+  L.push('}');
   L.push('# Fresh entrypoint.sh from GitHub RAW');
-  L.push(':do { /tool/fetch url=$entrypointUrl dst-path=("$baseDir/entrypoint.sh") mode=https } on-error={');
+  L.push(':do { /tool/fetch url=$entrypointUrl dst-path=($baseDir . "/entrypoint.sh") mode=https } on-error={');
   L.push('  :error "failed to download entrypoint.sh - check internet/DNS"');
   L.push('}');
   L.push('# Network');
   L.push(':do { /interface/veth/add name=("veth-" . $containerName) address=("$containerIP/" . $containerMask) gateway=$containerGW } on-error={ :put " ! veth exists, reusing" }');
   L.push(':do { /interface/bridge/port/add bridge=$bridgeName interface=("veth-" . $containerName) } on-error={}');
-  L.push('# Single mount point (entrypoint.sh + mysql + data + web inside)');
-  L.push(':local mntList ($containerName . "-data")');
-  L.push(':do { /container/mounts/add list=$mntList src=$baseDir dst="/mikrobill-data" } on-error={ :put "WARNING: mount list not created - check /container/mounts/print" }');
+  L.push('# Single mount point (entrypoint.sh + mysql + data + web + container inside)');
+  L.push(':do { /container/mounts/add list=$mntList src=$baseDir dst="/mikrobill-data" } on-error={}');
   L.push('# Env vars (property is list=, referenced by envlist=)');
   L.push(':do {');
   L.push('  /container/envs/add list=$containerName key="DB_NAME" value="mikrobill"');
   L.push('  /container/envs/add list=$containerName key="DB_USER" value="mikrobill"');
-  if(c.db)L.push('  /container/envs/add list=$containerName key="DB_PASSWORD" value="'+rsc(c.db)+'"');
-  L.push('  /container/envs/add list=$containerName key="ADMIN_LOGIN" value="admin"');
-  if(c.admin)L.push('  /container/envs/add list=$containerName key="ADMIN_PASSWORD" value="'+rsc(c.admin)+'"');
+  if(c.db) L.push('  /container/envs/add list=$containerName key="DB_PASSWORD" value="'+rsc(c.db)+'"');
+  if(c.admin) L.push('  /container/envs/add list=$containerName key="ADMIN_PASSWORD" value="'+rsc(c.admin)+'"');
   L.push('} on-error={}');
-  if(!c.db)L.push('# DB password left empty: entrypoint.sh will auto-generate it into /mikrobill-data/data/secrets/db_password');
-  if(!c.admin)L.push('# Admin password left empty: auto-generated into /mikrobill-data/data/secrets/admin_password');
+  if(!c.db) L.push('# DB password left empty: entrypoint.sh auto-generates it into /mikrobill-data/secrets/db_password');
+  if(!c.admin) L.push('# Admin password left empty: auto-generated into /mikrobill-data/secrets/admin_password (login: Admin)');
   L.push('# Container');
-  L.push(':do { /file/add name=("$baseDir/container") type=directory } on-error={}');
-  L.push('/container/add remote-image=$dockerImage name=$containerName interface=("veth-" . $containerName) envlist=$containerName mountlists=($containerName . "-data") root-dir=("$baseDir/container") shm-size=256.0MiB logging=yes start-on-boot=$startBoot');  L.push(':if ($addNat = "yes") do={');
+  L.push('/container/add remote-image=$dockerImage name=$containerName interface=("veth-" . $containerName) envlist=$containerName mountlists=$mntList root-dir=($baseDir . "/container") shm-size=256.0MiB logging=yes start-on-boot=$startBoot entrypoint=/bin/bash cmd=/mikrobill-data/entrypoint.sh');
+  L.push(':do { /container/start [find where name=$containerName] } on-error={}');
+  L.push('# NAT');
+  L.push(':if ($addNat = "yes") do={');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=80 action=dst-nat to-addresses=$containerIP to-ports=80 comment="MikroBILL HTTP" } on-error={}');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=443 action=dst-nat to-addresses=$containerIP to-ports=443 comment="MikroBILL HTTPS" } on-error={}');
+  L.push('  # WARNING: 3306 publishes MariaDB to WAN - cover it with a filter rule if not needed');
+  L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=3306 action=dst-nat to-addresses=$containerIP to-ports=3306 comment="MikroBILL DB" } on-error={}');
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-port=7402 action=dst-nat to-addresses=$containerIP comment="MikroBILL Core" } on-error={}');
   L.push('}');
   L.push('');
   L.push(':put "Installation complete!"');
   L.push(':put "Watch progress: /log print follow where topics~\\"container\\""');
+  L.push(':put ("Web: http://" . $containerIP . " (once the silent install finishes)")');
   return L.join('\n');
 }
+
 function buildUninst(c){
-  var L=[],base=c.disk+'/'+c.folder;
+  var L=[];
   L.push('# MikroBILL uninstall - config/NAT/veth removed, data kept on disk');
-  L.push(':local containerName "'+rsc(c.name)+'"');
-  L.push(':local baseDir "'+rsc(base)+'"');
-  L.push(':do { /container/stop $containerName } on-error={}');
+  L.push(':local containerName "'+c.name+'"');
+  L.push(':local baseDir "'+c.disk+'/'+c.folder+'"');
+  L.push(':local mntList "'+c.name+'-data"');
+  L.push(':do { /container/stop [find where name=$containerName] } on-error={}');
+  L.push(':delay 5s');
   L.push(':do { /container/remove [find where name=$containerName] } on-error={}');
-  L.push(':do { /file/remove [find where name=("$baseDir/container")] } on-error={}');
   L.push(':do { /container/envs/remove [find where list=$containerName] } on-error={}');
-  L.push(':do { /container/mounts/remove [find where list=($containerName . "-data")] } on-error={}');
+  L.push(':do { /container/mounts/remove [find where list=$mntList] } on-error={}');
   L.push(':do { /interface/bridge/port/remove [find where interface=("veth-" . $containerName)] } on-error={}');
   L.push(':do { /interface/veth/remove [find where name=("veth-" . $containerName)] } on-error={}');
-  L.push(':do { /ip/firewall/nat/remove [find where comment~"MikroBILL Core"] } on-error={}');
-  if(c.wipe){
-    L.push('# WARNING: data wipe enabled in the configurator');
-    L.push(':do { /file/remove [find where name=$baseDir] } on-error={}');
-    L.push(':put "Uninstall complete - DATA WIPED"');
-  }else{
-    L.push(':put ("Uninstall complete - data kept in " . $baseDir)');
-  }
+  L.push(':do { /ip/firewall/nat/remove [find where comment~"MikroBILL"] } on-error={}');
+  L.push(':do { /file/remove [find where name=($baseDir . "/container")] } on-error={}');
+  L.push(':put ("Uninstall complete - data kept in " . $baseDir)');
+  L.push('# Wipe data IRREVERSIBLY - run by hand only: /file/remove [find where name=$baseDir]');
   return L.join('\n');
 }
-function render(){
-  var c=cfg(),errs=validate(c),box=document.getElementById('errors');
-  if(errs.length){
-    box.style.display='block';
-    box.textContent=t('errs')+'\n- '+errs.join('\n- ');
-  }else{box.style.display='none'}
-  document.getElementById('pre-setup').textContent=buildSetup(c);
-  document.getElementById('pre-uninst').textContent=buildUninst(c);
-  ['setup','uninst'].forEach(function(id){
-    var pre=document.getElementById('pre-'+id);
-    if(pre.textContent.split('\n').length>18)pre.classList.add('collapsed');
-  });
-  applyI18n();
+
+function buildDiag(c){
+  var L=[];
+  L.push('# ============================================================');
+  L.push('# MikroBILL router check - changes nothing, only prints');
+  L.push('# ============================================================');
+  L.push(':local problems 0');
+  L.push(':put ("RouterOS: " . [/system/resource/get version])');
+  L.push(':put ("Architecture: " . [/system/resource/get architecture-name] . " (image is amd64 - x86/CHR only)")');
+  L.push(':put ("Cores: " . [/system/resource/get cpu-count] . ", free memory: " . ([/system/resource/get free-memory] / 1048576) . " MB")');
+  L.push(':local hasCont false');
+  L.push(':do { :if ([:len [/system/package/find where name~"container"]] > 0) do={ :set hasCont true } } on-error={}');
+  L.push(':if (!$hasCont) do={ :put " ! container package not installed"; :set problems ($problems + 1) } else={ :put "ok: container package" }');
+  L.push(':local dmC false; :local dmF false');
+  L.push(':do { :set dmC [/system/device-mode/get container] } on-error={}');
+  L.push(':do { :set dmF [/system/device-mode/get fetch] } on-error={}');
+  L.push(':if (!$dmC || !$dmF) do={');
+  L.push('  :put " ! device-mode blocks container/fetch. Run:"');
+  L.push('  :put "   /system/device-mode/update container=yes fetch=yes"');
+  L.push('  :set problems ($problems + 1)');
+  L.push('} else={ :put "ok: device-mode allows container and fetch" }');
+  L.push.apply(L,clockLines().map(function(l){return l.replace(':set problems','  :set problems')}));
+  L.push(':local dns [/ip/dns/get servers]');
+  L.push(':if ([:len $dns] = 0) do={ :put " ! no DNS servers"; :set problems ($problems + 1) } else={ :put ("ok: DNS " . [:tostr $dns]) }');
+  L.push(':do { :resolve "raw.githubusercontent.com"; :put "ok: raw.githubusercontent.com resolves" } on-error={ :put " ! cannot resolve raw.githubusercontent.com"; :set problems ($problems + 1) }');
+  L.push(':if ([:len [/file/find where name="'+c.disk+'"]] = 0) do={ :put " ! storage '+c.disk+' not found"; :set problems ($problems + 1) } else={ :put "ok: storage '+c.disk+' present" }');
+  L.push(':local freeB 0');
+  L.push(':do { :set freeB [/disk/get [find where mount-point="'+c.disk+'"] free] } on-error={}');
+  L.push(':if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free on '+c.disk+'") } else={ :put " ! cannot read free space of '+c.disk+'" ; :set problems ($problems + 1) }');
+  L.push(':if ([:len [/interface/bridge/find where name="'+c.bridge+'"]] = 0) do={ :put " ! bridge '+c.bridge+' not found"; :set problems ($problems + 1) } else={ :put "ok: bridge '+c.bridge+' present" }');
+  L.push(':local already [:len [/container/find]]');
+  L.push(':if ($already > 0) do={ :put ("Containers already on this router: " . $already) }');
+  L.push('');
+  L.push('# Optional disk benchmark (read-only, ~10 s, loads the disk):');
+  L.push('/disk/test disk='+c.disk+' direction=read pattern=sequential duration=5s block-size=64KiB thread-count=1 entries-to-show=1');
+  L.push('/disk/test disk='+c.disk+' direction=read pattern=random duration=5s block-size=4KiB thread-count=1 entries-to-show=1');
+  L.push('# sequential RATE: HDD >= 100 MB/s, SSD/RAID >= 300 MB/s');
+  L.push('# random 4K IOPS: HDD ~ 100-200, SSD >= 1000 <- what MariaDB feels');
+  L.push('# NEVER use direction=write on a live disk.');
+  L.push('');
+  L.push(':if ($problems = 0) do={ :put "=== Router is ready ===" } else={ :put ("=== " . $problems . " thing(s) to fix first ===") }');
+  return L.join('\n');
 }
-function toggleCollapse(id){
-  var pre=document.getElementById('pre-'+id);
+
+function applyCollapse(preId,btnId){
+  var pre=document.getElementById(preId), btn=document.getElementById(btnId);
+  if(!pre||!btn) return;
+  if((pre.textContent||'').split('\n').length>18){ pre.classList.add('collapsed'); btn.textContent=t('expand'); }
+  else { pre.classList.remove('collapsed'); btn.textContent=t('collapse'); }
+}
+function toggleCollapse(preId,btnId){
+  var pre=document.getElementById(preId);
   pre.classList.toggle('collapsed');
-  applyI18n();
+  document.getElementById(btnId).textContent=pre.classList.contains('collapsed')?t('expand'):t('collapse');
 }
-function copyText(id){
-  var txt=document.getElementById('pre-'+(id==='setup'?'setup':'uninst')).textContent;
-  navigator.clipboard.writeText(txt);
+function copyText(preId){
+  var txt=document.getElementById(preId).textContent;
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt); return; }
+  var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+  try{document.execCommand('copy');}catch(e){}
+  document.body.removeChild(ta);
 }
-function download(id){
-  var pre=document.getElementById(id==='setup'?'pre-setup':'pre-uninst');
-  var blob=new Blob([pre.textContent],{type:'text/plain'});
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=(id==='setup'?'setup.rsc':'uninstall.rsc');
-  a.click();
+function download(preId,fname){
+  var blob=new Blob([document.getElementById(preId).textContent],{type:'text/plain'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
   URL.revokeObjectURL(a.href);
 }
-// init
-document.getElementById('image').value=GH.user+'/'+GH.repo+':latest';
-document.getElementById('entry').value='https://raw.githubusercontent.com/'+GH.user+'/'+GH.repo+'/'+GH.branch+'/entrypoint.sh';
+function render(){
+  var c=cfg(), errs=validate(c), box=document.getElementById('errors');
+  if(errs.length){ box.style.display='block'; box.textContent=t('errs')+'\n- '+errs.join('\n- '); }
+  else { box.style.display='none'; }
+  var warn=errs.length?'# !!! DO NOT RUN: fix the errors listed on the page !!!\n\n':'';
+  document.getElementById('pre-setup').textContent=warn+buildSetup(c);
+  document.getElementById('pre-uninst').textContent=warn+buildUninst(c);
+  document.getElementById('pre-diag').textContent=buildDiag(c);
+  applyCollapse('pre-setup','tg-setup');
+  applyCollapse('pre-uninst','tg-uninst');
+}
 document.getElementById('storage').addEventListener('change',function(){
-  var custom=(this.value==='__custom');
+  var custom=this.value==='__custom';
   document.getElementById('storageCustom').style.display=custom?'inline-block':'none';
   render();
 });
-document.querySelectorAll('input,select').forEach(function(el){el.addEventListener('input',render)});
+document.querySelectorAll('input,select').forEach(function(el){
+  el.addEventListener('input',render);
+  el.addEventListener('change',render);
+});
 applyI18n();
 render();
 </script>
