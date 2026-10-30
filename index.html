@@ -283,11 +283,13 @@ function buildSetup(c){
   L.push('  :set problems ($problems + 1)');
   L.push('} else={ :put "ok: DNS configured" }');
   L.push('# 3. Container package present');
-  L.push(':do { /container/settings/print } on-error={');
+  L.push(':local hasCont false');
+  L.push(':do { :if ([:len [/system/package/find where name~"container"]] > 0) do={ :set hasCont true } } on-error={}');
+  L.push(':if (!$hasCont) do={');
   L.push('  :put " ! Container package not available. Install the container"');
   L.push('  :put "   package for your arch from mikrotik.com/download and reboot."');
   L.push('  :set problems ($problems + 1)');
-  L.push('}');
+  L.push('} else={ :put "ok: container package present" }');
   L.push('# 4. Storage present + free space');
   L.push(':if ([:len [/file/find where name=$disk]] = 0) do={');
   L.push('  :put (" ! Storage " . $disk . " not found. Check /file/print")');
