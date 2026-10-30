@@ -322,7 +322,7 @@ function buildSetup(c){
   L.push(':do { /file/add name=$baseDir type=directory } on-error={}');
   L.push(':do { /file/add name=($baseDir . "/container") type=directory } on-error={}');
   L.push('# Write probe: the disk must actually accept files');
-  L.push(':local probe ($baseDir . "/.write-probe")');
+  L.push(':local probe ($baseDir . "/write-probe")');
   L.push(':do {');
   L.push('  /file/add name=$probe contents="ok"');
   L.push('  :local pc [/file/get [find where name=$probe] contents]');
