@@ -95,11 +95,30 @@ for i in $(seq 1 30); do
 done
 
 mysql -uroot <<SQL || true
+-- Очистка анонимных пользователей во избежание конфликтов прав
+DELETE FROM mysql.user WHERE user = '';
+
+-- Создание базы данных
 CREATE DATABASE IF NOT EXISTS ${DB_NAME_SQL} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Создание и обновление прав для сетевого доступа (%)
 CREATE USER IF NOT EXISTS '${DB_USER_SQL}'@'%' IDENTIFIED BY '${DB_PASS_SQL}';
-GRANT ALL PRIVILEGES ON ${DB_NAME_SQL}.* TO '${DB_USER_SQL}'@'%';
 ALTER USER '${DB_USER_SQL}'@'%' IDENTIFIED BY '${DB_PASS_SQL}';
+GRANT ALL PRIVILEGES ON ${DB_NAME_SQL}.* TO '${DB_USER_SQL}'@'%';
 REVOKE FILE ON *.* FROM '${DB_USER_SQL}'@'%';
+
+-- Создание и обновление прав для локального сокета (localhost)
+CREATE USER IF NOT EXISTS '${DB_USER_SQL}'@'localhost' IDENTIFIED BY '${DB_PASS_SQL}';
+ALTER USER '${DB_USER_SQL}'@'localhost' IDENTIFIED BY '${DB_PASS_SQL}';
+GRANT ALL PRIVILEGES ON ${DB_NAME_SQL}.* TO '${DB_USER_SQL}'@'localhost';
+REVOKE FILE ON *.* FROM '${DB_USER_SQL}'@'localhost';
+
+-- Создание и обновление прав для локального IP (127.0.0.1)
+CREATE USER IF NOT EXISTS '${DB_USER_SQL}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS_SQL}';
+ALTER USER '${DB_USER_SQL}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS_SQL}';
+GRANT ALL PRIVILEGES ON ${DB_NAME_SQL}.* TO '${DB_USER_SQL}'@'127.0.0.1';
+REVOKE FILE ON *.* FROM '${DB_USER_SQL}'@'127.0.0.1';
+
 FLUSH PRIVILEGES;
 SQL
 
@@ -111,7 +130,7 @@ apachectl start >/dev/null 2>&1 || service apache2 start
 if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
     echo "Installer not found in image - downloading fresh copy..."
     mkdir -p "$INSTALL_DIR"
-    if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/stable; then
+    if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com; then
         unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
     else
         echo "ERROR: cannot download MikroBILL installer"
