@@ -54,7 +54,7 @@ RUN set -eux; \
     a2enmod rewrite ssl headers; \
     sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf; \
     echo "ServerName localhost" > /etc/apache2/conf-available/servername.conf; \
-    a2enconf servername
+    a2enconf servername; \
     mkdir -p \
         /var/www/html \
         /var/www/letsencrypt/.well-known/acme-challenge \
