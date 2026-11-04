@@ -57,11 +57,8 @@ RUN mkdir -p /opt/mikrobill-installer && \
     unzip -o /tmp/stable.zip -d /opt/mikrobill-installer && \
     rm -f /tmp/stable.zip
 
-# acme.sh - установка без cron (cron не нужен в контейнере)
-RUN curl -fsSL https://get.acme.sh -o /tmp/acme-install.sh && \
-    (head -n 1 /tmp/acme-install.sh | grep -q '^#!/' || { echo "ERROR: got HTML instead of acme.sh installer"; exit 1; }) && \
-    sh /tmp/acme-install.sh --install -m acme@example.com && \
-    rm /tmp/acme-install.sh
+# acme.sh - установка
+RUN curl -fsSL https://get.acme.sh | sh -s email=acme@example.com
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
