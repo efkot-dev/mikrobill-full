@@ -22,32 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php8.4-gd php8.4-zip php8.4-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Настройка PHP: правильный порядок загрузки модулей
+# Настройка PHP и Apache.
 RUN set -eux; \
     for ini in /etc/php/8.4/apache2/php.ini /etc/php/8.4/cli/php.ini; do \
         if [ -f "$ini" ]; then \
-            # 1. Базовые модули (порядок критичен!)
-            sed -i 's/^;extension=mysqlnd$/extension=mysqlnd/' "$ini" || true; \
-            sed -i 's/^;extension=pdo$/extension=pdo/' "$ini" || true; \
-            sed -i 's/^;extension=pdo_mysql$/extension=pdo_mysql/' "$ini" || true; \
-            sed -i 's/^;extension=mysqli$/extension=mysqli/' "$ini" || true; \
-            \
-            # 2. Опциональные модули (есть .so файлы)
-            sed -i 's/^;extension=curl$/extension=curl/' "$ini" || true; \
-            sed -i 's/^;extension=mbstring$/extension=mbstring/' "$ini" || true; \
-            sed -i 's/^;extension=gmp$/extension=gmp/' "$ini" || true; \
-            sed -i 's/^;extension=gd$/extension=gd/' "$ini" || true; \
-            sed -i 's/^;extension=zip$/extension=zip/' "$ini" || true; \
-            \
-            # 3. УБИРАЕМ встроенные модули (openssl, sodium уже в бинарнике PHP 8.4)
-            # Иначе PHP пытается загрузить их как .so и выдаёт warning
-            sed -i 's/^extension=openssl$/;extension=openssl ; built-in in PHP 8.4/' "$ini" || true; \
-            sed -i 's/^extension=sodium$/;extension=sodium ; built-in in PHP 8.4/' "$ini" || true; \
-            \
-            # 4. Увеличиваем лимиты
-            sed -i 's/memory_limit = 128M/memory_limit = 512M/g' "$ini" || true; \
-            sed -i 's/upload_max_filesize = 2M/upload_max_filesize = 64M/g' "$ini" || true; \
-            sed -i 's/post_max_size = 8M/post_max_size = 64M/g' "$ini" || true; \
+            sed -i -E 's/^extension=(curl|mbstring|openssl|pdo|pdo_mysql|mysqli|mysqlnd|sodium|gmp|gd|zip|xml)$/;extension=\1 ; loaded via conf.d or built-in/' "$ini"; \
+            sed -i 's/^memory_limit = .*/memory_limit = 512M/' "$ini"; \
+            sed -i 's/^upload_max_filesize = .*/upload_max_filesize = 64M/' "$ini"; \
+            sed -i 's/^post_max_size = .*/post_max_size = 64M/' "$ini"; \
         fi; \
     done; \
     a2enmod php8.4 2>/dev/null || true; \
