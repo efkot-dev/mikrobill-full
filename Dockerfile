@@ -45,7 +45,7 @@ RUN set -eux; \
     chown -R www-data:www-data /var/www
 
 # .NET 6 ASP.NET Core runtime
-RUN curl -fsSL https://dot.net -o /tmp/dotnet-install.sh && \
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && \
     chmod +x /tmp/dotnet-install.sh && \
     /tmp/dotnet-install.sh --channel 6.0 --runtime aspnetcore --install-dir /usr/share/dotnet && \
     ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet && \
