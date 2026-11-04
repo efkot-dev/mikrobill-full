@@ -58,7 +58,10 @@ RUN mkdir -p /opt/mikrobill-installer && \
     rm -f /tmp/stable.zip
 
 # acme.sh для встроенного в MikroBILL Let's Encrypt
-RUN curl -fsSL https://acme.sh | sh -s email=acme@example.com
+RUN curl -fsSL https://get.acme.sh -o /tmp/acme-install.sh && \
+    (head -n 1 /tmp/acme-install.sh | grep -q '^#!/' || { echo "ERROR: got HTML instead of acme.sh installer"; exit 1; }) && \
+    sh /tmp/acme-install.sh --nocron email=acme@example.com && \
+    rm /tmp/acme-install.sh
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
