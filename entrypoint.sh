@@ -130,7 +130,7 @@ apachectl start >/dev/null 2>&1 || service apache2 start
 if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
     echo "Installer not found in image - downloading fresh copy..."
     mkdir -p "$INSTALL_DIR"
-    if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com; then
+    if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/stable; then
         unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
     else
         echo "ERROR: cannot download MikroBILL installer"
