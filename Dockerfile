@@ -12,29 +12,49 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Установка MariaDB, Apache и защищенной версии PHP 8.4 + модулей
+# 2. Установка MariaDB, Apache и PHP 8.4 + модулей
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libicu-dev \
     mariadb-server mariadb-client \
     apache2 \
     php8.4 php8.4-cli libapache2-mod-php8.4 \
-    php8.4-mysql php8.4-curl php8.4-mbstring php8.4-xml php8.4-gmp php8.4-common \
+    php8.4-mysql php8.4-curl php8.4-mbstring php8.4-xml php8.4-gmp \
+    php8.4-gd php8.4-zip php8.4-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Настройка PHP и Apache под версию 8.4
+# Настройка PHP: правильный порядок загрузки модулей
 RUN set -eux; \
     for ini in /etc/php/8.4/apache2/php.ini /etc/php/8.4/cli/php.ini; do \
         if [ -f "$ini" ]; then \
-            sed -i -E 's/^;(extension=(curl|mbstring|openssl|pdo_mysql|sodium|gmp))/\1/' "$ini" || true; \
-            # Дополнительная защита: увеличиваем лимит памяти, чтобы избежать OOM-прерываний (CVE-2026-109618)
+            # 1. Базовые модули (порядок критичен!)
+            sed -i 's/^;extension=mysqlnd$/extension=mysqlnd/' "$ini" || true; \
+            sed -i 's/^;extension=pdo$/extension=pdo/' "$ini" || true; \
+            sed -i 's/^;extension=pdo_mysql$/extension=pdo_mysql/' "$ini" || true; \
+            sed -i 's/^;extension=mysqli$/extension=mysqli/' "$ini" || true; \
+            \
+            # 2. Опциональные модули (есть .so файлы)
+            sed -i 's/^;extension=curl$/extension=curl/' "$ini" || true; \
+            sed -i 's/^;extension=mbstring$/extension=mbstring/' "$ini" || true; \
+            sed -i 's/^;extension=gmp$/extension=gmp/' "$ini" || true; \
+            sed -i 's/^;extension=gd$/extension=gd/' "$ini" || true; \
+            sed -i 's/^;extension=zip$/extension=zip/' "$ini" || true; \
+            \
+            # 3. УБИРАЕМ встроенные модули (openssl, sodium уже в бинарнике PHP 8.4)
+            # Иначе PHP пытается загрузить их как .so и выдаёт warning
+            sed -i 's/^extension=openssl$/;extension=openssl ; built-in in PHP 8.4/' "$ini" || true; \
+            sed -i 's/^extension=sodium$/;extension=sodium ; built-in in PHP 8.4/' "$ini" || true; \
+            \
+            # 4. Увеличиваем лимиты
             sed -i 's/memory_limit = 128M/memory_limit = 512M/g' "$ini" || true; \
+            sed -i 's/upload_max_filesize = 2M/upload_max_filesize = 64M/g' "$ini" || true; \
+            sed -i 's/post_max_size = 8M/post_max_size = 64M/g' "$ini" || true; \
         fi; \
     done; \
     a2enmod php8.4 2>/dev/null || true; \
     a2enmod rewrite ssl headers; \
     sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf; \
     echo "ServerName localhost" > /etc/apache2/conf-available/servername.conf; \
-    a2enconf servername; \
+    a2enconf servername
     mkdir -p \
         /var/www/html \
         /var/www/letsencrypt/.well-known/acme-challenge \
