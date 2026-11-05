@@ -1,4 +1,11 @@
 #!/bin/bash
+
+# Логирование в файл (т.к. stdout не виден в логах MikroTik)
+LOG_FILE="/mikrobill-data/entrypoint.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "=== Entrypoint started at $(date) ==="
+
 # If a newer copy of this script lies on the mounted storage, the baked-in
 # /entrypoint.sh hands control over to it. Guard prevents a self-exec loop.
 if [ -f /mikrobill-data/entrypoint.sh ] && [ "${MB_ENTRYPOINT_EXTERNAL:-0}" != "1" ]; then
