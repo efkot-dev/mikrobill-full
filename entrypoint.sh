@@ -182,6 +182,9 @@ done
 chown -R www-data:www-data "${WEB_DIR}" 2>/dev/null || true
 
 # --- Start core ---
+# Auto-repair crashed tables on startup
+mysqlcheck -u root --auto-repair --all-databases 2>/dev/null || true
+
 if [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
     exec dotnet /var/MikroBILL/bin/MikroBILL.dll /SERVER
 elif [ -f "$INSTALL_DIR/MikroBILL.dll" ] && [ -f /var/MikroBILL/MikroBILL.xml ]; then
