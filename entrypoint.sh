@@ -147,8 +147,8 @@ SQL
 echo "Checking and repairing database tables..."
 mysqlcheck -uroot --auto-repair --all-databases 2>/dev/null || true
 
-# (acme.sh renewals) & Apache (web + ACME HTTP-01) ---
-apachectl start >/dev/null 2>&1 || service apache2 start
+# --- Apache (web + ACME HTTP-01) ---
+apachectl start >/dev/null 2>&1
 
 # --- Installer self-heal: image may lack it ---
 if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
