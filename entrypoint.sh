@@ -122,8 +122,12 @@ REVOKE FILE ON *.* FROM '${DB_USER_SQL}'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
 
+# Разрешить подключения извне (не только localhost)
+if [ -f /etc/mysql/mariadb.conf.d/50-server.cnf ]; then
+    sed -i 's/^bind-address\s*=\s*127.0.0.1/bind-address = 0.0.0.0/' /etc/mysql/mariadb.conf.d/50-server.cnf
+fi
 # --- cron (acme.sh renewals) & Apache (web + ACME HTTP-01) ---
-cron || true
+# cron || true
 apachectl start >/dev/null 2>&1 || service apache2 start
 
 # --- Installer self-heal: image may lack it ---
