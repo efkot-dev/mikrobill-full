@@ -168,8 +168,26 @@ mkdir -p "$WEB_DIR"/payin "$WEB_DIR"/actionin "$WEB_DIR"/news "$WEB_DIR"/tvin
 # --- Silent install on first run ---
 if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
     echo "First run: installing MikroBILL..."
+    
+    # Determine container IP for web_url (from ENV or auto-detect)
+    CONTAINER_IP="${CONTAINER_IP:-}"
+    if [ -z "$CONTAINER_IP" ]; then
+        # Auto-detect: get IP of eth0 (veth interface inside container)
+        CONTAINER_IP=$(ip -4 addr show eth0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+        if [ -z "$CONTAINER_IP" ]; then
+            # Fallback: use hostname -i
+            CONTAINER_IP=$(hostname -i 2>/dev/null | awk '{print $1}')
+        fi
+    fi
+    
+    # Build web_url (allow override via ENV)
+    WEB_URL="${WEB_URL:-http://${CONTAINER_IP}}"
+    echo "Container IP: $CONTAINER_IP"
+    echo "Web URL: $WEB_URL"
+    
     INSTALL_JSON=$(jq -c -n \
         --arg web_path "$WEB_DIR" \
+        --arg web_url "$WEB_URL" \
         --arg db_ip "127.0.0.1" \
         --arg db_port "3306" \
         --arg db_name "$DB_NAME" \
@@ -178,12 +196,13 @@ if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
         --arg admin_login "$ADMIN_LOGIN" \
         --arg admin_pass "$ADMIN_PASSWORD" \
         '{
-            web_path: $web_path, check_db: "0", language: "ru",
+            web_path: $web_path, web_url: $web_url, check_db: "0", language: "ru",
             db_ip: $db_ip, db_port: $db_port, db_name: $db_name,
             db_login: $db_login, db_pass: $db_pass,
             admin_login: $admin_login, admin_pass: $admin_pass,
             admin_allowed_ip: "", lic_accept: "1"
         }')
+    
     INSTALL_RC=0
     dotnet "$INSTALL_DIR/MikroBILL.dll" /SILENT_INSTALL="$INSTALL_JSON" || INSTALL_RC=$?
     if [ -f /var/MikroBILL/MikroBILL.xml ] && [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
