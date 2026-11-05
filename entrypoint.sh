@@ -1,11 +1,4 @@
 #!/bin/bash
-
-# Логирование в файл (т.к. stdout не виден в логах MikroTik)
-LOG_FILE="/mikrobill-data/entrypoint.log"
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-echo "=== Entrypoint started at $(date) ==="
-
 # If a newer copy of this script lies on the mounted storage, the baked-in
 # /entrypoint.sh hands control over to it. Guard prevents a self-exec loop.
 if [ -f /mikrobill-data/entrypoint.sh ] && [ "${MB_ENTRYPOINT_EXTERNAL:-0}" != "1" ]; then
@@ -14,6 +7,20 @@ if [ -f /mikrobill-data/entrypoint.sh ] && [ "${MB_ENTRYPOINT_EXTERNAL:-0}" != "
     exec bash /mikrobill-data/entrypoint.sh
 fi
 set -u
+
+# --- Logging: strict one-time tee (prevents duplicate lines) ---
+if [ "${MB_LOG_SET:-0}" != "1" ]; then
+    export MB_LOG_SET=1
+    exec > >(tee -a "/mikrobill-data/entrypoint.log") 2>&1
+fi
+
+echo "=== Entrypoint started at $(date) ==="
+
+# --- systemctl shim: container has no systemd, but installer calls it ---
+if [ ! -x /usr/local/bin/systemctl ]; then
+    printf '#!/bin/sh\n# container shim: no systemd inside\nexit 0\n' > /usr/local/bin/systemctl
+    chmod +x /usr/local/bin/systemctl
+fi
 
 # RouterOS may leave loopback down inside containers
 if ! ip link show lo 2>/dev/null | grep -q "UP"; then
@@ -84,6 +91,13 @@ DB_USER_SQL=$(sql_escape "$DB_USER")
 DB_PASS_SQL=$(sql_escape "$DB_PASSWORD")
 DB_NAME_SQL=$(sql_escape "$DB_NAME")
 
+# --- MariaDB config: bind to all interfaces, skip log-bin, skip name resolve ---
+CNF=/etc/mysql/mariadb.conf.d/50-server.cnf
+if [ -f "$CNF" ] && ! grep -q '^skip-name-resolve' "$CNF"; then
+    sed -i 's/^bind-address\s*=.*/bind-address = 0.0.0.0/' "$CNF"
+    sed -i '/^\[mysqld\]/a skip-log-bin\nskip-name-resolve' "$CNF"
+fi
+
 # --- MariaDB init & start ---
 if [ ! -d /var/lib/mysql/mysql ]; then
     echo "Initializing MariaDB..."
@@ -129,12 +143,12 @@ REVOKE FILE ON *.* FROM '${DB_USER_SQL}'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
 
-# Разрешить подключения извне (не только localhost)
-if [ -f /etc/mysql/mariadb.conf.d/50-server.cnf ]; then
-    sed -i 's/^bind-address\s*=\s*127.0.0.1/bind-address = 0.0.0.0/' /etc/mysql/mariadb.conf.d/50-server.cnf
-fi
+# --- Auto-repair crashed tables (MyISAM tables can crash on unclean shutdown) ---
+echo "Checking and repairing database tables..."
+mysqlcheck -uroot --auto-repair --all-databases 2>/dev/null || true
+
 # --- cron (acme.sh renewals) & Apache (web + ACME HTTP-01) ---
-# cron || true
+cron || true
 apachectl start >/dev/null 2>&1 || service apache2 start
 
 # --- Installer self-heal: image may lack it ---
@@ -147,6 +161,9 @@ if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
         echo "ERROR: cannot download MikroBILL installer"
     fi
 fi
+
+# --- Pre-create directories that installer chmod's before creating ---
+mkdir -p "$WEB_DIR"/payin "$WEB_DIR"/actionin "$WEB_DIR"/news "$WEB_DIR"/tvin
 
 # --- Silent install on first run ---
 if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
@@ -167,7 +184,13 @@ if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
             admin_login: $admin_login, admin_pass: $admin_pass,
             admin_allowed_ip: "", lic_accept: "1"
         }')
-    dotnet "$INSTALL_DIR/MikroBILL.dll" /SILENT_INSTALL="$INSTALL_JSON" || echo "MikroBILL silent install failed"
+    INSTALL_RC=0
+    dotnet "$INSTALL_DIR/MikroBILL.dll" /SILENT_INSTALL="$INSTALL_JSON" || INSTALL_RC=$?
+    if [ -f /var/MikroBILL/MikroBILL.xml ] && [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
+        echo "Silent install finished (rc=$INSTALL_RC), artifacts present - continuing"
+    else
+        echo "MikroBILL silent install FAILED (rc=$INSTALL_RC), artifacts missing"
+    fi
     sleep 5
 fi
 
@@ -177,14 +200,11 @@ if [ -d /var/MikroBILL/bin/web ] && [ ! -f "${WEB_DIR}/web.ver" ]; then
 fi
 for d in payin actionin news tvin; do
     mkdir -p "${WEB_DIR}/$d"
-    chmod -R a=rwx "${WEB_DIR}/$d"
+    chmod -R a=rwx "${WEB_DIR}/$d" 2>/dev/null || true
 done
 chown -R www-data:www-data "${WEB_DIR}" 2>/dev/null || true
 
 # --- Start core ---
-# Auto-repair crashed tables on startup
-mysqlcheck -u root --auto-repair --all-databases 2>/dev/null || true
-
 if [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
     exec dotnet /var/MikroBILL/bin/MikroBILL.dll /SERVER
 elif [ -f "$INSTALL_DIR/MikroBILL.dll" ] && [ -f /var/MikroBILL/MikroBILL.xml ]; then
