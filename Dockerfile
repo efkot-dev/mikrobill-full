@@ -5,21 +5,20 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/usr/share/dotnet:$PATH \
     LANG=C.UTF-8
 
-# 1. Установка базовых утилит и добавление свежего репозитория PHP (PPA)
+# 1. Базовые утилиты + репозиторий PHP (Sury = официальный зеркalo ondrej/php)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget unzip gnupg lsb-release jq openssl socat cron software-properties-common \
-    && add-apt-repository ppa:ondrej/php -y \
-    && apt-get update \
+    ca-certificates curl wget unzip jq openssl \
+    && install -d /etc/apt/keyrings \
+    && curl -fsSL https://packages.sury.org/php/apt.gpg -o /etc/apt/keyrings/sury-php.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/sury-php.gpg] https://packages.sury.org/php/ noble main" > /etc/apt/sources.list.d/sury-php.list \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Установка MariaDB, Apache и PHP 8.4 + модулей
+# 2. MariaDB, Apache, PHP 8.4 + модули по официальным требованиям MikroBILL
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libicu-dev \
     mariadb-server mariadb-client \
     apache2 \
     php8.4 php8.4-cli libapache2-mod-php8.4 \
-    php8.4-mysql php8.4-curl php8.4-mbstring php8.4-xml php8.4-gmp \
-    php8.4-gd php8.4-zip php8.4-common \
+    php8.4-mysql php8.4-curl php8.4-mbstring php8.4-xml php8.4-gmp php8.4-common \
     && rm -rf /var/lib/apt/lists/*
 
 # Настройка PHP и Apache.
