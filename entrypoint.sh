@@ -147,8 +147,7 @@ SQL
 echo "Checking and repairing database tables..."
 mysqlcheck -uroot --auto-repair --all-databases 2>/dev/null || true
 
-# --- cron (acme.sh renewals) & Apache (web + ACME HTTP-01) ---
-cron || true
+# (acme.sh renewals) & Apache (web + ACME HTTP-01) ---
 apachectl start >/dev/null 2>&1 || service apache2 start
 
 # --- Installer self-heal: image may lack it ---
