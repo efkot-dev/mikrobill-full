@@ -58,8 +58,13 @@ RUN mkdir -p /opt/mikrobill-installer && \
     unzip -o /tmp/stable.zip -d /opt/mikrobill-installer && \
     rm -f /tmp/stable.zip
 
-# acme.sh - установка
-RUN curl -fsSL https://get.acme.sh | sh -s email=acme@example.com
+# acme.sh: штатный --nocron обходит pre-check crontab без заглушек.
+RUN set -e; \
+    curl -fsSL https://get.acme.sh -o /tmp/acme-bootstrap.sh; \
+    head -n1 /tmp/acme-bootstrap.sh | grep -q '^#!/'; \
+    sh /tmp/acme-bootstrap.sh email=acme@example.com --nocron; \
+    test -x /root/.acme.sh/acme.sh; \
+    rm -f /tmp/acme-bootstrap.sh
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
