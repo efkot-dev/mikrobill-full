@@ -150,14 +150,38 @@ mysqlcheck -uroot --auto-repair --all-databases 2>/dev/null || true
 # --- Apache (web + ACME HTTP-01) ---
 apachectl start >/dev/null 2>&1
 
-# --- Installer self-heal: image may lack it ---
-if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
-    echo "Installer not found in image - downloading fresh copy..."
-    mkdir -p "$INSTALL_DIR"
-    if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/stable; then
-        unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
+# --- Version selection: stable (default) or beta ---
+MB_VERSION="${MB_VERSION:-stable}"
+echo "Selected MikroBILL version: $MB_VERSION"
+
+# --- Installer preparation based on MB_VERSION ---
+if [ "$MB_VERSION" = "beta" ]; then
+    echo "Preparing beta installer..."
+    if [ -f /opt/mikrobill-beta.zip ]; then
+        echo "Unpacking beta installer from image..."
+        mkdir -p "$INSTALL_DIR"
+        rm -rf "$INSTALL_DIR"/*
+        unzip -o /opt/mikrobill-beta.zip -d "$INSTALL_DIR"
     else
-        echo "ERROR: cannot download MikroBILL installer"
+        echo "Beta archive not found in image - downloading fresh copy..."
+        mkdir -p "$INSTALL_DIR"
+        if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/beta; then
+            unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
+        else
+            echo "ERROR: cannot download MikroBILL beta installer"
+        fi
+    fi
+else
+    echo "Preparing stable installer..."
+    # --- Installer self-heal: image may lack it ---
+    if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
+        echo "Installer not found in image - downloading fresh copy..."
+        mkdir -p "$INSTALL_DIR"
+        if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/stable; then
+            unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
+        else
+            echo "ERROR: cannot download MikroBILL installer"
+        fi
     fi
 fi
 
@@ -166,8 +190,8 @@ mkdir -p "$WEB_DIR"/payin "$WEB_DIR"/actionin "$WEB_DIR"/news "$WEB_DIR"/tvin
 
 # --- Silent install on first run ---
 if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
-    echo "First run: installing MikroBILL..."
-    
+    echo "First run: installing MikroBILL ($MB_VERSION)..."
+
     # Determine container IP for web_url (from ENV or auto-detect)
     CONTAINER_IP="${CONTAINER_IP:-}"
     if [ -z "$CONTAINER_IP" ]; then
@@ -178,12 +202,12 @@ if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
             CONTAINER_IP=$(hostname -i 2>/dev/null | awk '{print $1}')
         fi
     fi
-    
+
     # Build web_url (allow override via ENV)
     WEB_URL="${WEB_URL:-http://${CONTAINER_IP}}"
     echo "Container IP: $CONTAINER_IP"
     echo "Web URL: $WEB_URL"
-    
+
     INSTALL_JSON=$(jq -c -n \
         --arg web_path "$WEB_DIR" \
         --arg web_url "$WEB_URL" \
@@ -201,7 +225,7 @@ if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
             admin_login: $admin_login, admin_pass: $admin_pass,
             admin_allowed_ip: "", lic_accept: "1"
         }')
-    
+
     INSTALL_RC=0
     dotnet "$INSTALL_DIR/MikroBILL.dll" /SILENT_INSTALL="$INSTALL_JSON" || INSTALL_RC=$?
     if [ -f /var/MikroBILL/MikroBILL.xml ] && [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
