@@ -2,7 +2,7 @@ name: Auto Release MikroBILL
 
 on:
   schedule:
-    # Запуск каждый день в 03:00 UTC (можете изменить cron под себя)
+    # Запуск каждый день в 03:00 UTC
     - cron: '0 3 * * *'
   workflow_dispatch: # Кнопка для ручного запуска во вкладке Actions
 
@@ -26,7 +26,10 @@ jobs:
         id: check
         run: |
           HASH=$(sha256sum stable.zip | awk '{print $1}')
+          
+          # Ищем дату модификации MikroBILL.dll или .exe внутри архива
           DATE_STR=$(unzip -l stable.zip | grep -iE "MikroBILL\.(dll|exe)" | head -n 1 | awk '{print $2}')
+          
           if [ -n "$DATE_STR" ]; then
             VERSION=$(date -d "$DATE_STR" +"%d%m%Y")
             echo "Found date in binary: $DATE_STR -> Docker Tag: $VERSION"
@@ -34,8 +37,11 @@ jobs:
             VERSION="sha-${HASH:0:8}"
             echo "Binary not found in archive, using hash: $VERSION"
           fi
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "hash=$HASH" >> $GITHUB_OUTPUT
+          
+          # Проверяем, существует ли уже такой тег в Docker Hub
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/mikrobill-full/tags/${VERSION}")
           if [ "$HTTP_CODE" = "200" ]; then
             echo "build=false" >> $GITHUB_OUTPUT
