@@ -53,7 +53,10 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh &&
     rm /tmp/dotnet-install.sh
 
 # Дистрибутив MikroBILL внутри образа
+# stable распакован сразу, beta лежит zip'ом и распакуется на первом старте
 COPY stable.zip /tmp/stable.zip
+COPY beta.zip /opt/mikrobill-beta.zip
+
 RUN mkdir -p /opt/mikrobill-installer && \
     unzip -o /tmp/stable.zip -d /opt/mikrobill-installer && \
     rm -f /tmp/stable.zip

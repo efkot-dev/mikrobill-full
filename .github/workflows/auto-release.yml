@@ -2,7 +2,7 @@ name: Auto Release MikroBILL
 
 on:
   schedule:
-    # Запуск каждый день в 03:00 UTC (можете изменить cron под себя)
+    # Запуск каждый день в 03:00 UTC
     - cron: '0 3 * * *'
   workflow_dispatch: # Кнопка для ручного запуска во вкладке Actions
 
@@ -14,26 +14,26 @@ jobs:
       hash: ${{ steps.check.outputs.hash }}
       build: ${{ steps.check.outputs.build }}
     steps:
-      - name: Download archive
+      - name: Download stable archive
         run: |
           wget -q -O stable.zip https://mikro-bill.com/downloads/stable
-          
+
+      - name: Download beta archive
+        run: |
+          wget -q -O beta.zip https://mikro-bill.com/downloads/beta
+
       - name: Extract version from DLL/EXE date
         id: check
         run: |
           HASH=$(sha256sum stable.zip | awk '{print $1}')
           
           # Ищем дату модификации MikroBILL.dll или .exe внутри архива
-          # unzip -l выводит: "  Length      Date    Time    Name"
-          # awk '{print $2}' забирает дату в формате YYYY-MM-DD
           DATE_STR=$(unzip -l stable.zip | grep -iE "MikroBILL\.(dll|exe)" | head -n 1 | awk '{print $2}')
           
           if [ -n "$DATE_STR" ]; then
-            # Преобразуем YYYY-MM-DD в DDMMYYYY (например, 2026-10-04 -> 04102026)
             VERSION=$(date -d "$DATE_STR" +"%d%m%Y")
             echo "Found date in binary: $DATE_STR -> Docker Tag: $VERSION"
           else
-            # Fallback: если файл не найден, используем первые 8 символов хэша
             VERSION="sha-${HASH:0:8}"
             echo "Binary not found in archive, using hash: $VERSION"
           fi
@@ -51,12 +51,19 @@ jobs:
             echo "🚀 New version $VERSION found! Triggering build."
           fi
 
-      - name: Upload artifact
+      - name: Upload stable artifact
         if: steps.check.outputs.build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: stable-zip
           path: stable.zip
+
+      - name: Upload beta artifact
+        if: steps.check.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-zip
+          path: beta.zip
 
   build-and-push:
     needs: check-version
@@ -72,6 +79,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: stable-zip
+          path: .
+
+      - name: Download beta.zip
+        uses: actions/download-artifact@v4
+        with:
+          name: beta-zip
           path: .
 
       - name: Set up Docker Buildx
