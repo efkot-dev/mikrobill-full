@@ -498,10 +498,13 @@ function buildDiag(c){
   L.push(':local dns [/ip/dns/get servers]');
   L.push(':if ([:len $dns] = 0) do={ :put " ! no DNS servers"; :set problems ($problems + 1) } else={ :put ("ok: DNS " . [:tostr $dns]) }');
   L.push(':do { :resolve "raw.githubusercontent.com"; :put "ok: raw.githubusercontent.com resolves" } on-error={ :put " ! cannot resolve raw.githubusercontent.com"; :set problems ($problems + 1) }');
-  L.push(':if ([:len [/file/find where name=$disk]] = 0) do={ :put " ! storage " . $disk . " not found"); :set problems ($problems + 1) } else={ :put ("ok: storage " . $disk . " present") }');
+  
+  // ✅ ИСПРАВЛЕНО 1: добавлена открывающая скобка после :put
+  L.push(':if ([:len [/file/find where name=$disk]] = 0) do={ :put (" ! storage " . $disk . " not found"); :set problems ($problems + 1) } else={ :put ("ok: storage " . $disk . " present") }');
+  
   L.push(':local freeB 0');
   L.push(':do { :set freeB [/disk/get [find where mount-point=$disk] free] } on-error={}');
-  L.push(':if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free on " . $disk) } else={ :put " ! cannot read free space of " . $disk); :set problems ($problems + 1) }');
+  L.push(':if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free on " . $disk) } else={ :put (" ! cannot read free space of " . $disk); :set problems ($problems + 1) }');
   if(c.useBridge){
     L.push(':if ([:len [/interface/bridge/find where name="'+c.bridge+'"]] = 0) do={ :put " ! bridge '+c.bridge+' not found"; :set problems ($problems + 1) } else={ :put "ok: bridge '+c.bridge+' present" }');
   } else {
@@ -515,12 +518,13 @@ function buildDiag(c){
   L.push('/disk/test disk='+c.disk+' direction=read pattern=random duration=5s block-size=4KiB thread-count=1 entries-to-show=1');
   L.push(':put "How to read: sequential RATE: HDD >= 100 MB/s, SSD/RAID >= 300 MB/s"');
   L.push(':put "How to read: random 4K IOPS: HDD ~ 100-200, SSD >= 1000 <- what MariaDB feels"');
-  L.push('NEVER use direction=write on a live disk.');
+  
+  // ✅ ИСПРАВЛЕНО 2: добавлена команда :put в начале строки
+  L.push(':put "NEVER use direction=write on a live disk."');
   L.push('');
   L.push(':if ($problems = 0) do={ :put "=== Router is ready ===" } else={ :put ("=== " . $problems . " thing(s) to fix first ===") }');
   return L.join('\n');
 }
-
 // Блок 6 - [NEW] bootstrap.rsc: роутер скачивает 3 скрипта и регистрирует их в System -> Scripts
 function buildBootstrap(c,gist,base){
   var L=[], ts=new Date().toISOString().slice(0,19).replace('T',' ');
