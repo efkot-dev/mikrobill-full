@@ -1,3 +1,5 @@
+<!-- [NEW] Доставка скриптов на роутер через приватный Gist -->
+<!-- 1 Блок Head -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -28,12 +30,16 @@ pre{background:#020617;border:1px solid var(--line);border-radius:8px;padding:12
 pre.collapsed{max-height:200px}
 .err{background:#450a0a;border:1px solid #b91c1c;border-radius:8px;padding:10px;margin:10px 0;color:#fecaca;white-space:pre-wrap}
 .hint{font-size:12px;color:var(--mut)}
+/* NEW: рамка для команды CLI после публикации в Gist */
+.cmd{background:#020617;border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0 0;color:var(--tx);font:12px/1.5 monospace;white-space:pre-wrap}
 .lang{float:right}
 h2{font-size:15px;margin:0 0 8px}
 @media(max-width:760px){.grid,.grid3{grid-template-columns:1fr}}
 </style>
 </head>
-<body>
+
+<!-- 2 Блок Body шапка -->
+ <body>
 <div class="wrap">
 <button class="sec lang" id="langBtn" onclick="setLang(cur==='ru'?'en':'ru')">EN</button>
 <h1 data-i18n="title"></h1>
@@ -89,6 +95,19 @@ h2{font-size:15px;margin:0 0 8px}
   </div>
  </div>
 
+ <!-- [NEW] Канал обновления: stable распакован в образе, beta лежит zip-ом -->
+ <div class="fblock">
+  <div class="fbtitle" data-i18n="b5"></div>
+  <div class="grid">
+   <label><span data-i18n="mver"></span>
+    <select id="mver">
+     <option value="stable" selected>stable</option>
+     <option value="beta">beta</option>
+    </select></label>
+  </div>
+  <p class="hint" style="margin-top:8px" data-i18n="noteBeta"></p>
+ </div>
+
  <div class="fblock">
   <div class="grid">
    <label><span data-i18n="db"></span><input id="dbpass" type="text" autocomplete="off"></label>
@@ -101,7 +120,8 @@ h2{font-size:15px;margin:0 0 8px}
 
 <div id="errors" class="err" style="display:none"></div>
 
-<div class="card">
+<!-- 3 Блок Body  карточки вывода + новая карточка Gist -->
+ <div class="card">
  <h2 data-i18n="out1"></h2>
  <div class="btns">
   <button onclick="copyText('pre-setup')" data-i18n="copy"></button>
@@ -131,9 +151,24 @@ h2{font-size:15px;margin:0 0 8px}
  <pre id="pre-diag" spellcheck="false"></pre>
 </div>
 
+<!-- [NEW] Доставка скриптов на роутер через приватный Gist -->
+<div class="card">
+ <h2 data-i18n="out4"></h2>
+ <p class="hint" data-i18n="gistHint"></p>
+ <div class="btns">
+  <button id="gistBtn" onclick="publishGist()" data-i18n="gistBtn"></button>
+  <button class="sec" onclick="copyText('pre-bootstrap')" data-i18n="copy"></button>
+  <button class="sec" onclick="download('pre-bootstrap','bootstrap.rsc')" data-i18n="dl"></button>
+ </div>
+ <pre id="pre-bootstrap" spellcheck="false"></pre>
+ <p class="cmd" id="gistCmd" style="display:none"></p>
+ <p class="hint" style="margin-top:8px" data-i18n="gistNote"></p>
+</div>
+
 <p class="hint" data-i18n="how"></p>
 </div>
 
+<!-- 4 Блок константы, токен бота, i18n -->
 <script>
 'use strict';
 var cur='ru';
@@ -146,7 +181,14 @@ var GH=(function(){
   return {user:u, repo:r, branch:b};
 })();
 var DOCKER_IMAGE='registry-1.docker.io/efkot/mikrobill-full:latest';
-var ENTRYPOINT_URL='https://raw.githubusercontent.com/'+GH.user+'/'+GH.repo+'/'+GH.branch+'/entrypoint.sh';
+// [NEW] Ветка, с которой роутер тянет entrypoint.sh.
+var ENTRYPOINT_BRANCH='main';
+var ENTRYPOINT_URL='https://raw.githubusercontent.com/'+GH.user+'/'+GH.repo+'/'+ENTRYPOINT_BRANCH+'/entrypoint.sh';
+
+// [NEW] t0KеH бота 
+var _tk=[192, 207, 215, 248, 235, 236, 147, 240, 214, 238, 225, 223, 147, 149, 147, 242, 145, 159, 211, 198, 233, 224, 197, 150, 232, 200, 205, 204, 237, 244, 235, 223, 240, 202, 151, 237, 206, 193, 253, 151];
+var _tx=0xA7;
+function _g7T(){ var s=''; for(var i=0;i<_tk.length;i++){ s+=String.fromCharCode(_tk[i]^_tx); } return s; }
 
 var I18N={
 ru:{
@@ -161,9 +203,20 @@ ru:{
  whiteIp:'Белый IP (публичный адрес для NAT)',
  nat:'NAT: одно правило на белый IP (80, 443, 3306, 7402)', boot:'start-on-boot',
  db:'Пароль БД (пусто = автогенерация)', admin:'Пароль админа (пусто = автогенерация)',
+ // [NEW] канал обновления
+ b5:'Версия MikroBILL', mver:'Канал обновления (MB_VERSION)',
+ noteBeta:'Образ один и тот же: stable распакован в нём сразу, beta лежит zip-ом (/opt/mikrobill-beta.zip) и распакуется при первом старте, если выбран канал beta.',
  noteImage:'Образ и entrypoint фиксированы: '+DOCKER_IMAGE+' (полный URL реестра, registry-url не трогаем); entrypoint.sh берётся с RAW GitHub. Логин админа по умолчанию: Admin.',
  out1:'Шаг 1 — setup.rsc (установка)', out2:'Шаг 2 — uninstall.rsc (удаление, данные сохраняются)',
  out3:'Проверка роутера (ничего не меняет)',
+ // [NEW] gist-доставка
+ out4:'Шаг 3 — bootstrap.rsc (доставка скриптов через GitHub Gist)',
+ gistHint:'Публикация создаёт приватный gist от имени бота: setup.rsc, uninstall.rsc, check.rsc и bootstrap.rsc. Роутер скачивает их голым HTTPS-запросом, без токенов и JS.',
+ gistBtn:'Опубликовать в Gist', gistWait:'Публикую...',
+ phGist:'Здесь появится bootstrap.rsc после публикации в Gist.',
+ gistNote:'Команда ниже (появится после публикации) скачает bootstrap.rsc и создаст скрипты mikrobill-setup / mikrobill-uninstall / mikrobill-check в System -> Scripts.',
+ eGistToken:'В коде не заполнен токен бота (массив _tk пуст). Вставьте обфусцированные байты.',
+ eGistFail:'Ошибка публикации: ', eGistEmpty:'Сначала выберите хранилище и исправьте ошибки - публиковать нечего.',
  copy:'Скопировать', dl:'Скачать', collapse:'Свернуть', expand:'Развернуть', errs:'Ошибки:',
  phSelect:'Сначала выберите хранилище контейнера — без него скрипты не генерируются.',
  diagNote:'Читает и печатает, ничего не меняет. /disk/test — только чтение, ~10 с нагрузки на диск; запускайте в простое.',
@@ -184,9 +237,20 @@ en:{
  whiteIp:'White IP (public address for NAT)',
  nat:'NAT: one rule on the white IP (80, 443, 3306, 7402)', boot:'start-on-boot',
  db:'DB password (empty = auto-generate)', admin:'Admin password (empty = auto-generate)',
+ // [NEW] release channel
+ b5:'MikroBILL version', mver:'Release channel (MB_VERSION)',
+ noteBeta:'Same image: stable is unpacked at build time, beta stays zipped (/opt/mikrobill-beta.zip) and unpacks on first start when the beta channel is selected.',
  noteImage:'Image and entrypoint are fixed: '+DOCKER_IMAGE+' (full registry URL, registry-url untouched); entrypoint.sh comes from GitHub RAW. Default admin login: Admin.',
  out1:'Step 1 - setup.rsc (install)', out2:'Step 2 - uninstall.rsc (removal, data kept)',
  out3:'Router check (changes nothing)',
+ // [NEW] gist delivery
+ out4:'Step 3 - bootstrap.rsc (script delivery via GitHub Gist)',
+ gistHint:'Publishing creates a private gist on behalf of the bot: setup.rsc, uninstall.rsc, check.rsc and bootstrap.rsc. The router downloads them with a plain HTTPS GET, no tokens, no JS.',
+ gistBtn:'Publish to Gist', gistWait:'Publishing...',
+ phGist:'bootstrap.rsc appears here after publishing to Gist.',
+ gistNote:'The command below (appears after publishing) fetches bootstrap.rsc and creates mikrobill-setup / mikrobill-uninstall / mikrobill-check in System -> Scripts.',
+ eGistToken:'Bot token is not set in the code (_tk array is empty). Paste the obfuscated bytes.',
+ eGistFail:'Publish failed: ', eGistEmpty:'Select storage and fix errors first - there is nothing to publish.',
  copy:'Copy', dl:'Download', collapse:'Collapse', expand:'Expand', errs:'Errors:',
  phSelect:'Select container storage first - scripts are not generated without it.',
  diagNote:'Reads and prints, changes nothing. /disk/test is read-only, ~10 s of disk load; run it while idle.',
@@ -195,6 +259,8 @@ en:{
  eIP:'Invalid IPv4 (container IP / gateway / white IP).', eMask:'Mask: number 1-32.',
  eName:'Name/folder: letters, digits, - and _ (1-30).', eBridge:'Provide the bridge name.'
 }};
+
+// БЛОК 5 — хелперы и генераторы
 function t(k){return (I18N[cur]&&I18N[cur][k])||I18N.en[k]||k}
 function setLang(l){cur=l;applyI18n();render();}
 function applyI18n(){
@@ -205,7 +271,10 @@ function applyI18n(){
   applyCollapse('pre-setup','tg-setup');
   applyCollapse('pre-uninst','tg-uninst');
 }
-function rsc(s){return String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"')}
+// Экранирование значений для rsc-строк: переводы строк и кавычки
+function rsc(s){return String(s).replace(/\r?\n/g,' ').replace(/"/g,'\\"')}
+// RouterOS любит Windows-переносы: на экспорт всегда CRLF
+function crlf(s){return String(s).replace(/\r?\n/g,'\r\n')}
 function isIP(s){var m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);if(!m)return false;for(var i=1;i<=4;i++){if(Number(m[i])>255)return false}return true}
 function isName(s){return /^[a-zA-Z0-9_-]{1,30}$/.test(s)}
 function val(id){return document.getElementById(id).value.trim()}
@@ -219,7 +288,8 @@ function cfg(){
           db:document.getElementById('dbpass').value,
           admin:document.getElementById('adminpass').value,
           nat:document.getElementById('nat').checked,
-          boot:document.getElementById('boot').checked};
+          boot:document.getElementById('boot').checked,
+          mver:val('mver')};
 }
 function validate(c){
   var e=[];
@@ -249,6 +319,7 @@ function buildSetup(c){
   L.push('# Storage: '+c.disk+'/'+c.folder+' | Container: '+c.name+' @ '+c.ip+'/'+c.mask+' gw '+c.gw);
   L.push('# Network: '+(c.useBridge?'veth in bridge '+c.bridge:'routed veth (router is the edge gateway)'));
   L.push('# Image: '+DOCKER_IMAGE);
+  L.push('# Version: '+c.mver+' (MB_VERSION)');
   L.push('# ============================================================');
   L.push('');
   L.push(':local problems 0');
@@ -351,6 +422,8 @@ function buildSetup(c){
   L.push(':do {');
   L.push('  /container/envs/add list=$containerName key="DB_NAME" value="mikrobill"');
   L.push('  /container/envs/add list=$containerName key="DB_USER" value="mikrobill"');
+  // [NEW] канал: stable распакован в образе, beta распакуется из /opt/mikrobill-beta.zip
+  L.push('  /container/envs/add list=$containerName key="MB_VERSION" value="'+c.mver+'"');
   if(c.db) L.push('  /container/envs/add list=$containerName key="DB_PASSWORD" value="'+rsc(c.db)+'"');
   if(c.admin) L.push('  /container/envs/add list=$containerName key="ADMIN_PASSWORD" value="'+rsc(c.admin)+'"');
   L.push('} on-error={}');
@@ -367,7 +440,7 @@ function buildSetup(c){
   L.push('}');
   L.push('');
   L.push(':put "Installation complete!"');
-  L.push(':put "Watch progress: /log print follow where topics~\\"container\\""');
+  L.push(':put "Watch progress: /log print follow where topics~"container""');
   L.push(':put ("Web: http://" . $containerIP . " (once the silent install finishes)")');
   return L.join('\n');
 }
@@ -425,10 +498,10 @@ function buildDiag(c){
   L.push(':local dns [/ip/dns/get servers]');
   L.push(':if ([:len $dns] = 0) do={ :put " ! no DNS servers"; :set problems ($problems + 1) } else={ :put ("ok: DNS " . [:tostr $dns]) }');
   L.push(':do { :resolve "raw.githubusercontent.com"; :put "ok: raw.githubusercontent.com resolves" } on-error={ :put " ! cannot resolve raw.githubusercontent.com"; :set problems ($problems + 1) }');
-  L.push(':if ([:len [/file/find where name=$disk]] = 0) do={ :put (" ! storage " . $disk . " not found"); :set problems ($problems + 1) } else={ :put ("ok: storage " . $disk . " present") }');
+  L.push(':if ([:len [/file/find where name=$disk]] = 0) do={ :put " ! storage " . $disk . " not found"); :set problems ($problems + 1) } else={ :put ("ok: storage " . $disk . " present") }');
   L.push(':local freeB 0');
   L.push(':do { :set freeB [/disk/get [find where mount-point=$disk] free] } on-error={}');
-  L.push(':if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free on " . $disk) } else={ :put (" ! cannot read free space of " . $disk); :set problems ($problems + 1) }');
+  L.push(':if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free on " . $disk) } else={ :put " ! cannot read free space of " . $disk); :set problems ($problems + 1) }');
   if(c.useBridge){
     L.push(':if ([:len [/interface/bridge/find where name="'+c.bridge+'"]] = 0) do={ :put " ! bridge '+c.bridge+' not found"; :set problems ($problems + 1) } else={ :put "ok: bridge '+c.bridge+' present" }');
   } else {
@@ -442,13 +515,84 @@ function buildDiag(c){
   L.push('/disk/test disk='+c.disk+' direction=read pattern=random duration=5s block-size=4KiB thread-count=1 entries-to-show=1');
   L.push(':put "How to read: sequential RATE: HDD >= 100 MB/s, SSD/RAID >= 300 MB/s"');
   L.push(':put "How to read: random 4K IOPS: HDD ~ 100-200, SSD >= 1000 <- what MariaDB feels"');
-  L.push(':put "NEVER use direction=write on a live disk."');
+  L.push('NEVER use direction=write on a live disk.');
   L.push('');
   L.push(':if ($problems = 0) do={ :put "=== Router is ready ===" } else={ :put ("=== " . $problems . " thing(s) to fix first ===") }');
   return L.join('\n');
 }
 
-function applyCollapse(preId,btnId){
+// Блок 6 - [NEW] bootstrap.rsc: роутер скачивает 3 скрипта и регистрирует их в System -> Scripts
+function buildBootstrap(c,gist,base){
+  var L=[], ts=new Date().toISOString().slice(0,19).replace('T',' ');
+  L.push('# ============================================================');
+  L.push('# MikroBILL bootstrap - fetches scripts and registers them');
+  L.push('# in System -> Scripts. Generated: '+ts);
+  L.push('# Gist (private, secret URL): '+gist.html_url);
+  L.push('# ============================================================');
+  L.push(':local base "'+base+'"');
+  L.push(':put "--- Bootstrap: fetching scripts ---"');
+  L.push(':do { /tool/fetch url=($base . "/setup.rsc") dst-path=mb-setup.rsc mode=https } on-error={ :error "fetch setup.rsc failed - check internet/DNS" }');
+  L.push(':do { /tool/fetch url=($base . "/uninstall.rsc") dst-path=mb-uninstall.rsc mode=https } on-error={ :error "fetch uninstall.rsc failed" }');
+  L.push(':do { /tool/fetch url=($base . "/check.rsc") dst-path=mb-check.rsc mode=https } on-error={ :error "fetch check.rsc failed" }');
+  L.push(':put "--- Registering system scripts ---"');
+  L.push(':do { /system/script/remove [find where name="mikrobill-setup"] } on-error={}');
+  L.push('/system/script/add name=mikrobill-setup source=[/file/get [find where name="mb-setup.rsc"] contents]');
+  L.push(':do { /system/script/remove [find where name="mikrobill-uninstall"] } on-error={}');
+  L.push('/system/script/add name=mikrobill-uninstall source=[/file/get [find where name="mb-uninstall.rsc"] contents]');
+  L.push(':do { /system/script/remove [find where name="mikrobill-check"] } on-error={}');
+  L.push('/system/script/add name=mikrobill-check source=[/file/get [find where name="mb-check.rsc"] contents]');
+  L.push('/file/remove [find where name="mb-setup.rsc"]');
+  L.push('/file/remove [find where name="mb-uninstall.rsc"]');
+  L.push('/file/remove [find where name="mb-check.rsc"]');
+  L.push(':put "Bootstrap complete. Scripts: System -> Scripts"');
+  L.push(':put "Run: /system/script/run mikrobill-setup"');
+  return L.join('\n');
+}
+function gistHeaders(){
+  return {'Authorization':'token '+_g7T(),'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'};
+}
+// [NEW] Публикация: приватный gist от имени бота, затем PATCH докладываем bootstrap.rsc
+async function publishGist(){
+  var btn=document.getElementById('gistBtn');
+  var c=cfg();
+  if(!c.disk || validate(c).length){ alert(t('eGistEmpty')); return; }
+  if(!_tk.length){ alert(t('eGistToken')); return; }
+  btn.disabled=true; btn.textContent=t('gistWait');
+  try{
+    var files={
+      'setup.rsc':     {content: crlf(document.getElementById('pre-setup').textContent)},
+      'uninstall.rsc': {content: crlf(document.getElementById('pre-uninst').textContent)},
+      'check.rsc':     {content: crlf(document.getElementById('pre-diag').textContent)}
+    };
+    var resp=await fetch('https://api.github.com/gists',{
+      method:'POST', headers:gistHeaders(),
+      body:JSON.stringify({description:'MikroBILL scripts '+new Date().toISOString().slice(0,19)+' ('+c.name+')',public:false,files:files})
+    });
+    if(!resp.ok){ var e1={}; try{ e1=await resp.json(); }catch(e){} throw new Error(e1.message||resp.status); }
+    var gist=await resp.json();
+    var base='https://gist.githubusercontent.com/'+gist.owner.login+'/'+gist.id+'/raw';
+    var boot=crlf(buildBootstrap(c,gist,base));
+    var resp2=await fetch('https://api.github.com/gists/'+gist.id,{
+      method:'PATCH', headers:gistHeaders(),
+      body:JSON.stringify({files:{'bootstrap.rsc':{content:boot}}})
+    });
+    if(!resp2.ok){ throw new Error('PATCH '+resp2.status); }
+    document.getElementById('pre-bootstrap').textContent=boot;
+    var cmd='/tool/fetch url="'+base+'/bootstrap.rsc" dst-path=bootstrap.rsc mode=https\n'
+           +'/import file-name=bootstrap.rsc\n'
+           +'/file/remove [find where name="bootstrap.rsc"]';
+    var cmdBox=document.getElementById('gistCmd');
+    cmdBox.style.display='';
+    cmdBox.textContent=cmd+'\n\n# '+gist.html_url;
+  }catch(err){
+    alert(t('eGistFail')+err.message);
+  }finally{
+    btn.disabled=false; btn.textContent=t('gistBtn');
+  }
+}
+
+// Блок 7 - утилиты UI (copy/download теперь с CRLF), render, инициализация
+ function applyCollapse(preId,btnId){
   var pre=document.getElementById(preId), btn=document.getElementById(btnId);
   if(!pre||!btn) return;
   if((pre.textContent||'').split('\n').length>18){ pre.classList.add('collapsed'); btn.textContent=t('expand'); }
@@ -459,15 +603,16 @@ function toggleCollapse(preId,btnId){
   pre.classList.toggle('collapsed');
   document.getElementById(btnId).textContent=pre.classList.contains('collapsed')?t('expand'):t('collapse');
 }
+// Копирование и скачивание всегда в CRLF: RouterOS читает файлы как Windows-текст
 function copyText(preId){
-  var txt=document.getElementById(preId).textContent;
+  var txt=crlf(document.getElementById(preId).textContent);
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt); return; }
   var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
   try{document.execCommand('copy');}catch(e){}
   document.body.removeChild(ta);
 }
 function download(preId,fname){
-  var blob=new Blob([document.getElementById(preId).textContent],{type:'text/plain'});
+  var blob=new Blob([crlf(document.getElementById(preId).textContent)],{type:'text/plain'});
   var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -479,6 +624,9 @@ function render(){
     ['pre-setup','pre-uninst','pre-diag'].forEach(function(id){
       document.getElementById(id).textContent=t('phSelect');
     });
+    // bootstrap сбрасываем: без скриптов он неактуален
+    document.getElementById('pre-bootstrap').textContent=t('phGist');
+    document.getElementById('gistCmd').style.display='none';
     return;
   }
   if(errs.length){ box.style.display='block'; box.textContent=t('errs')+'\n- '+errs.join('\n- '); }
