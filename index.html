@@ -475,54 +475,61 @@ function buildUninst(c){
 function buildDiag(c){
   var L=[];
   L.push('# ============================================================');
-  L.push('# MikroBILL router check - changes nothing, only prints');
+  L.push('# MikroBILL router check - changes nothing, only logs');
   L.push('# ============================================================');
   L.push(':local problems 0');
   L.push(':local disk "'+c.disk+'"');
-  L.push(':put ("RouterOS: " . [/system/resource/get version])');
-  L.push(':put ("Architecture: " . [/system/resource/get architecture-name] . " (image is amd64 - x86/CHR only)")');
-  L.push(':put ("Cores: " . [/system/resource/get cpu-count] . ", free memory: " . ([/system/resource/get free-memory] / 1048576) . " MB")');
+  
+  L.push(':log info ("RouterOS: " . [/system/resource/get version])');
+  L.push(':log info ("Architecture: " . [/system/resource/get architecture-name] . " (image is amd64)")');
+  L.push(':log info ("Cores: " . [/system/resource/get cpu-count] . ", free memory: " . ([/system/resource/get free-memory] / 1048576) . " MB")');
+  
   L.push(':local hasCont false');
   L.push(':do { :if ([:len [/system/package/find where name~"container"]] > 0) do={ :set hasCont true } } on-error={}');
-  L.push(':if (!$hasCont) do={ :put " ! container package not installed"; :set problems ($problems + 1) } else={ :put "ok: container package" }');
+  L.push(':if (!$hasCont) do={ :log warning " ! container package not installed"; :set problems ($problems + 1) } else={ :log info "ok: container package" }');
+  
   L.push(':local dmC false; :local dmF false');
   L.push(':do { :set dmC [/system/device-mode/get container] } on-error={}');
   L.push(':do { :set dmF [/system/device-mode/get fetch] } on-error={}');
   L.push(':if (!$dmC || !$dmF) do={');
-  L.push('  :put " ! device-mode blocks container/fetch. Run:"');
-  L.push('  :put "   /system/device-mode/update container=yes fetch=yes"');
+  L.push('  :log warning " ! device-mode blocks container/fetch. Run:"');
+  L.push('  :log info "   /system/device-mode/update container=yes fetch=yes"');
   L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put "ok: device-mode allows container and fetch" }');
-  L.push(':local yr [:tonum [:pick [/system/clock/get date] 0 4]]');
-  L.push(':if ([:typeof $yr] = "nil" or $yr < 2024) do={ :put (" ! clock says " . [/system/clock/get date]); :set problems ($problems + 1) } else={ :put "ok: clock looks sane" }');
-  L.push(':local dns [/ip/dns/get servers]');
-  L.push(':if ([:len $dns] = 0) do={ :put " ! no DNS servers"; :set problems ($problems + 1) } else={ :put ("ok: DNS " . [:tostr $dns]) }');
-  L.push(':do { :resolve "raw.githubusercontent.com"; :put "ok: raw.githubusercontent.com resolves" } on-error={ :put " ! cannot resolve raw.githubusercontent.com"; :set problems ($problems + 1) }');
+  L.push('} else={ :log info "ok: device-mode allows container and fetch" }');
   
-  // ✅ ИСПРАВЛЕНО 1: добавлена открывающая скобка после :put
-  L.push(':if ([:len [/file/find where name=$disk]] = 0) do={ :put (" ! storage " . $disk . " not found"); :set problems ($problems + 1) } else={ :put ("ok: storage " . $disk . " present") }');
+  L.push(':local yr [:tonum [:pick [/system/clock/get date] 0 4]]');
+  L.push(':if ([:typeof $yr] = "nil" or $yr < 2024) do={ :log warning (" ! clock says " . [/system/clock/get date]); :set problems ($problems + 1) } else={ :log info "ok: clock looks sane" }');
+  
+  L.push(':local dns [/ip/dns/get servers]');
+  L.push(':if ([:len $dns] = 0) do={ :log warning " ! no DNS servers"; :set problems ($problems + 1) } else={ :log info ("ok: DNS " . [:tostr $dns]) }');
+  
+  L.push(':do { :resolve "raw.githubusercontent.com"; :log info "ok: raw.githubusercontent.com resolves" } on-error={ :log warning " ! cannot resolve raw.githubusercontent.com"; :set problems ($problems + 1) }');
+  
+  L.push(':if ([:len [/file/find where name=$disk]] = 0) do={ :log warning (" ! storage " . $disk . " not found"); :set problems ($problems + 1) } else={ :log info ("ok: storage " . $disk . " present") }');
   
   L.push(':local freeB 0');
   L.push(':do { :set freeB [/disk/get [find where mount-point=$disk] free] } on-error={}');
-  L.push(':if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free on " . $disk) } else={ :put (" ! cannot read free space of " . $disk); :set problems ($problems + 1) }');
+  L.push(':if ($freeB > 0) do={ :log info ("ok: " . ($freeB / 1048576) . " MB free on " . $disk) } else={ :log warning (" ! cannot read free space of " . $disk); :set problems ($problems + 1) }');
+  
   if(c.useBridge){
-    L.push(':if ([:len [/interface/bridge/find where name="'+c.bridge+'"]] = 0) do={ :put " ! bridge '+c.bridge+' not found"; :set problems ($problems + 1) } else={ :put "ok: bridge '+c.bridge+' present" }');
+    L.push(':if ([:len [/interface/bridge/find where name="'+c.bridge+'"]] = 0) do={ :log warning " ! bridge '+c.bridge+' not found"; :set problems ($problems + 1) } else={ :log info "ok: bridge '+c.bridge+' present" }');
   } else {
-    L.push(':put "ok: routed veth mode - no bridge required"');
+    L.push(':log info "ok: routed veth mode - no bridge required"');
   }
+  
   L.push(':local already [:len [/container/find]]');
-  L.push(':if ($already > 0) do={ :put ("Containers already on this router: " . $already) }');
+  L.push(':if ($already > 0) do={ :log info ("Containers already on this router: " . $already) }');
   L.push('');
-  L.push(':put "Optional disk benchmark (read-only, ~10 s, loads the disk):"');
+  
+  L.push(':log info "Optional disk benchmark (read-only, ~10 s, loads the disk):"');
   L.push('/disk/test disk='+c.disk+' direction=read pattern=sequential duration=5s block-size=64KiB thread-count=1 entries-to-show=1');
   L.push('/disk/test disk='+c.disk+' direction=read pattern=random duration=5s block-size=4KiB thread-count=1 entries-to-show=1');
-  L.push(':put "How to read: sequential RATE: HDD >= 100 MB/s, SSD/RAID >= 300 MB/s"');
-  L.push(':put "How to read: random 4K IOPS: HDD ~ 100-200, SSD >= 1000 <- what MariaDB feels"');
-  
-  // ✅ ИСПРАВЛЕНО 2: добавлена команда :put в начале строки
-  L.push(':put "NEVER use direction=write on a live disk."');
+  L.push(':log info "How to read: sequential RATE: HDD >= 100 MB/s, SSD/RAID >= 300 MB/s"');
+  L.push(':log info "How to read: random 4K IOPS: HDD ~ 100-200, SSD >= 1000 <- what MariaDB feels"');
+  L.push(':log info "NEVER use direction=write on a live disk."');
   L.push('');
-  L.push(':if ($problems = 0) do={ :put "=== Router is ready ===" } else={ :put ("=== " . $problems . " thing(s) to fix first ===") }');
+  
+  L.push(':if ($problems = 0) do={ :log info "=== Router is ready ===" } else={ :log warning ("=== " . $problems . " thing(s) to fix first ===") }');
   return L.join('\n');
 }
 // Блок 6 - [NEW] bootstrap.rsc: роутер скачивает 3 скрипта и регистрирует их в System -> Scripts
