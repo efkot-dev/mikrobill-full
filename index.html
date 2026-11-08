@@ -162,9 +162,12 @@ h2{font-size:15px;margin:0 0 8px}
   <button class="sec" id="gistDelBtn" onclick="deleteGist()" style="display:none;background:#b91c1c;" data-i18n="gistDel"></button>
 <p class="hint" id="gistMsg" style="display:none;margin-top:8px"></p>
  </div>
- <pre id="pre-bootstrap" spellcheck="false"></pre>
- <p class="cmd" id="gistCmd" style="display:none"></p>
- <p class="hint" style="margin-top:8px" data-i18n="gistNote"></p>
+<pre id="pre-bootstrap" spellcheck="false"></pre>
+<p class="cmd" id="gistCmd" style="display:none"></p>
+<div class="btns" id="gistCmdBtns" style="display:none;margin-top:8px;">
+  <button onclick="copyBootstrapCmd()" data-i18n="copyCmd"></button>
+</div>
+<p class="hint" style="margin-top:8px" data-i18n="gistNote"></p>
 </div>
 
 <p class="hint" data-i18n="how"></p>
@@ -215,6 +218,7 @@ ru:{
  // [NEW] gist-доставка
  out4:'Шаг 3 — bootstrap.rsc (доставка скриптов через GitHub Gist)',
  gistDel: 'Удалить Gist',
+ copyCmd: 'Скопировать команду',
  gistHint:'Публикация создаёт приватный gist от имени бота: setup.rsc, uninstall.rsc, check.rsc и bootstrap.rsc. Роутер скачивает их голым HTTPS-запросом, без токенов и JS.',
  gistBtn:'Опубликовать в Gist', gistWait:'Публикую...',
  phGist:'Здесь появится bootstrap.rsc после публикации в Gist.',
@@ -250,6 +254,7 @@ en:{
  // [NEW] gist delivery
  out4:'Step 3 - bootstrap.rsc (script delivery via GitHub Gist)',
  gistDel: 'Delete Gist',
+ copyCmd: 'Copy command',
  gistHint:'Publishing creates a private gist on behalf of the bot: setup.rsc, uninstall.rsc, check.rsc and bootstrap.rsc. The router downloads them with a plain HTTPS GET, no tokens, no JS.',
  gistBtn:'Publish to Gist', gistWait:'Publishing...',
  phGist:'bootstrap.rsc appears here after publishing to Gist.',
@@ -595,17 +600,59 @@ async function publishGist(){
 _currentGistId = gist.id;
 document.getElementById('gistDelBtn').style.display = '';
     document.getElementById('pre-bootstrap').textContent=boot;
-    var cmd='/tool/fetch url="'+base+'/bootstrap.rsc" dst-path=bootstrap.rsc mode=https\n'
-           +'/import file-name=bootstrap.rsc\n'
-           +'/file/remove [find where name="bootstrap.rsc"]';
-    var cmdBox=document.getElementById('gistCmd');
-    cmdBox.style.display='';
-    cmdBox.textContent=cmd+'\n\n# '+gist.html_url;
+var cmd='/tool/fetch url="'+base+'/bootstrap.rsc" dst-path=bootstrap.rsc mode=https; '
+       +'/import file-name=bootstrap.rsc; '
+       +'/file/remove [find where name="bootstrap.rsc"]';
+var cmdBox=document.getElementById('gistCmd');
+cmdBox.style.display='';
+cmdBox.textContent=cmd+'\n\n# '+gist.html_url;
+document.getElementById('gistCmdBtns').style.display='';  // ← добавить эту строку
   }catch(err){
     alert(t('eGistFail')+err.message);
   }finally{
     btn.disabled=false; btn.textContent=t('gistBtn');
   }
+}
+ // [NEW] Копирование команды bootstrap с визуальной обратной связью
+function copyBootstrapCmd(){
+  var cmdBox = document.getElementById('gistCmd');
+  if(!cmdBox || !cmdBox.textContent){ return; }
+  
+  var txt = cmdBox.textContent.trim();
+  
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){
+      showCopyFeedback();
+    }).catch(function(){
+      fallbackCopy(txt);
+    });
+  } else {
+    fallbackCopy(txt);
+  }
+}
+
+function showCopyFeedback(){
+  var btn = document.querySelector('#gistCmdBtns button');
+  if(!btn) return;
+  var origText = btn.textContent;
+  btn.textContent = '✓ ' + t('copyCmd');
+  btn.disabled = true;
+  setTimeout(function(){
+    btn.textContent = origText;
+    btn.disabled = false;
+  }, 2000);
+}
+
+function fallbackCopy(txt){
+  var ta = document.createElement('textarea');
+  ta.value = txt;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try{ document.execCommand('copy'); } catch(e){}
+  document.body.removeChild(ta);
+  showCopyFeedback();
 }
 // [NEW] Удаление gist после успешной установки
 async function deleteGist(){
@@ -631,6 +678,7 @@ async function deleteGist(){
     
     _currentGistId = null;
     document.getElementById('gistCmd').style.display = 'none';
+   document.getElementById('gistCmdBtns').style.display = 'none';
     document.getElementById('gistDelBtn').style.display = 'none';
     
     var msgBox = document.getElementById('gistMsg');
@@ -682,6 +730,7 @@ function render(){
    _currentGistId = null;
     document.getElementById('gistDelBtn').style.display = 'none';
     document.getElementById('gistMsg').style.display = 'none';
+    document.getElementById('gistCmdBtns').style.display='none';
     document.getElementById('pre-bootstrap').textContent=t('phGist');
     document.getElementById('gistCmd').style.display='none';
     return;
