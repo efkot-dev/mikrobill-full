@@ -344,57 +344,57 @@ function buildSetup(c){
   if(c.useBridge) L.push(':local bridgeName "'+c.bridge+'"');
   if(c.nat) L.push(':local whiteIP "'+c.whiteIp+'"');
   L.push('');
-  L.push(':put "--- Preflight ---"');
+  L.push(':log info "--- Preflight ---"');
   L.push('# 1. Clock: https fetch and TLS fail with a wrong date');
   L.push(':local yr [:tonum [:pick [/system/clock/get date] 0 4]]');
   L.push(':if ([:typeof $yr] = "nil" or $yr < 2024) do={');
-  L.push('  :put (" ! Clock says " . [/system/clock/get date] . " - fix it first:")');
-  L.push('  :put "   /system/ntp/client/set enabled=yes servers=216.239.35.0,162.159.200.1"');
+  L.push('  :log warning (" ! Clock says " . [/system/clock/get date] . " - fix it first:")');
+  L.push('  :log info "   /system/ntp/client/set enabled=yes servers=216.239.35.0,162.159.200.1"');
   L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put "ok: clock looks sane" }');
+  L.push('} else={ :log info "ok: clock looks sane" }');
   L.push('# 2. DNS: needed to pull the image and fetch entrypoint.sh');
   L.push(':if ([:len [/ip/dns/get servers]] = 0) do={');
-  L.push('  :put " ! No DNS servers configured. Example:"');
-  L.push('  :put "   /ip/dns/set servers=8.8.8.8,1.1.1.1"');
+  L.push('  :log warning " ! No DNS servers configured. Example:"');
+  L.push('  :log info "   /ip/dns/set servers=8.8.8.8,1.1.1.1"');
   L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put "ok: DNS configured" }');
+  L.push('} else={ :log info "ok: DNS configured" }');
   L.push('# 3. Container package present');
   L.push(':local hasCont false');
   L.push(':do { :if ([:len [/system/package/find where name~"container"]] > 0) do={ :set hasCont true } } on-error={}');
   L.push(':if (!$hasCont) do={');
-  L.push('  :put " ! Container package not available. Install the container"');
-  L.push('  :put "   package for your arch from mikrotik.com/download and reboot."');
+  L.push('  :log warning " ! Container package not available. Install the container"');
+  L.push('  :log info "   package for your arch from mikrotik.com/download and reboot."');
   L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put "ok: container package present" }');
+  L.push('} else={ :log info "ok: container package present" }');
   L.push('# 4. Storage present + free space');
   L.push(':if ([:len [/file/find where name=$disk]] = 0) do={');
-  L.push('  :put (" ! Storage " . $disk . " not found. Check /file/print")');
+  L.push('  :log warning (" ! Storage " . $disk . " not found. Check /file/print")');
   L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :put ("ok: storage " . $disk . " present") }');
+  L.push('} else={ :log info ("ok: storage " . $disk . " present") }');
   L.push(':local freeB 0');
   L.push(':do { :set freeB [/disk/get [find where mount-point=$disk] free] } on-error={}');
   L.push(':if ($freeB = 0) do={ :do { :set freeB [/system/resource/get free-hdd-space] } on-error={} }');
   L.push(':if ($freeB > 0 and $freeB < 1073741824) do={');
-  L.push('  :put (" ! Only " . ($freeB / 1048576) . " MB free - image+DB need 1 GB+")');
+  L.push('  :log warning (" ! Only " . ($freeB / 1048576) . " MB free - image+DB need 1 GB+")');
   L.push('  :set problems ($problems + 1)');
-  L.push('} else={ :if ($freeB > 0) do={ :put ("ok: " . ($freeB / 1048576) . " MB free") } }');
+  L.push('} else={ :if ($freeB > 0) do={ :log info ("ok: " . ($freeB / 1048576) . " MB free") } }');
   if(c.useBridge){
     L.push('# 5. Bridge present');
     L.push(':if ([:len [/interface/bridge/find where name=$bridgeName]] = 0) do={');
-    L.push('  :put (" ! Bridge " . $bridgeName . " not found. Check /interface/print")');
+    L.push('  :log warning (" ! Bridge " . $bridgeName . " not found. Check /interface/print")');
     L.push('  :set problems ($problems + 1)');
-    L.push('} else={ :put ("ok: bridge " . $bridgeName . " present") }');
+    L.push('} else={ :log info ("ok: bridge " . $bridgeName . " present") }');
   } else {
     L.push('# 5. Routed mode: no bridge needed, the router routes to the veth itself');
-    L.push(':put "ok: routed veth mode selected"');
+    L.push(':log info "ok: routed veth mode selected"');
   }
   L.push('');
   L.push(':if ($problems > 0) do={');
-  L.push('  :put "Preflight failed - fix the items above and run again."');
+  L.push('  :log warning "Preflight failed - fix the items above and run again."');
   L.push('  :error "preflight failed"');
   L.push('}');
   L.push('');
-  L.push(':put "--- Install ---"');
+  L.push(':log info "--- Install ---"');
   L.push(':do { /file/add name=$baseDir type=directory } on-error={}');
   L.push('# Write probe: the disk must actually accept files');
   L.push(':local probe ($baseDir . "/write-probe")');
@@ -403,9 +403,9 @@ function buildSetup(c){
   L.push('  :local pc [/file/get [find where name=$probe] contents]');
   L.push('  /file/remove [find where name=$probe]');
   L.push('  :if ($pc != "ok") do={ :error "write probe mismatch" }');
-  L.push('  :put "ok: storage is writable"');
+  L.push('  :log info "ok: storage is writable"');
   L.push('} on-error={');
-  L.push('  :put " ! write probe FAILED - check mount/permissions"');
+  L.push('  :log warning " ! write probe FAILED - check mount/permissions"');
   L.push('  :error "storage not writable"');
   L.push('}');
   L.push('# Fresh entrypoint.sh from GitHub RAW');
@@ -413,7 +413,7 @@ function buildSetup(c){
   L.push('  :error "failed to download entrypoint.sh - check internet/DNS"');
   L.push('}');
   L.push('# Network');
-  L.push(':do { /interface/veth/add name=$vethName address=("$containerIP/" . $containerMask) gateway=$containerGW } on-error={ :put " ! veth exists, reusing" }');
+  L.push(':do { /interface/veth/add name=$vethName address=("$containerIP/" . $containerMask) gateway=$containerGW } on-error={ :log info " ! veth exists, reusing" }');
   if(c.useBridge){
     L.push(':do { /interface/bridge/port/add bridge=$bridgeName interface=$vethName } on-error={}');
   } else {
@@ -427,7 +427,6 @@ function buildSetup(c){
   L.push(':do {');
   L.push('  /container/envs/add list=$containerName key="DB_NAME" value="mikrobill"');
   L.push('  /container/envs/add list=$containerName key="DB_USER" value="mikrobill"');
-  // [NEW] канал: stable распакован в образе, beta распакуется из /opt/mikrobill-beta.zip
   L.push('  /container/envs/add list=$containerName key="MB_VERSION" value="'+c.mver+'"');
   if(c.db) L.push('  /container/envs/add list=$containerName key="DB_PASSWORD" value="'+rsc(c.db)+'"');
   if(c.admin) L.push('  /container/envs/add list=$containerName key="ADMIN_PASSWORD" value="'+rsc(c.admin)+'"');
@@ -444,12 +443,12 @@ function buildSetup(c){
   L.push('  :do { /ip/firewall/nat/add chain=dstnat protocol=tcp dst-address=$whiteIP dst-port=80,443,3306,7402 action=dst-nat to-addresses=$containerIP comment=($tag . "-nat") } on-error={}');
   L.push('}');
   L.push('');
-  L.push(':put "Installation complete!"');
-  L.push(':put "Watch progress: /log print follow where topics~container"');
-  L.push(':put ("Web: http://" . $containerIP . " (once the silent install finishes)")');
+  L.push(':log info "Installation complete!"');
+  L.push(':log info "Watch progress: /log print follow where topics~container"');
+  L.push(':log info ("Web: http://" . $containerIP . " (once the silent install finishes)")');
   return L.join('\n');
 }
-
+ 
 function buildUninst(c){
   var L=[];
   L.push('# MikroBILL uninstall - config/NAT/veth removed, data kept on disk');
@@ -468,11 +467,11 @@ function buildUninst(c){
   L.push(':do { /ip/address/remove [find where interface=$vethName] } on-error={}');
   L.push(':do { /interface/bridge/port/remove [find where interface=$vethName] } on-error={}');
   L.push(':do { /interface/veth/remove [find where name=$vethName] } on-error={');
-  L.push('  :put " ! veth still busy - container not fully stopped, remove by hand:"');
-  L.push('  :put ("   /interface/veth/remove [find where name=" . $vethName . "]")');
+  L.push('  :log warning " ! veth still busy - container not fully stopped, remove by hand:"');
+  L.push('  :log info ("   /interface/veth/remove [find where name=" . $vethName . "]")');
   L.push('}');
   L.push(':do { /file/remove [find where name=($baseDir . "/container")] } on-error={}');
-  L.push(':put ("Uninstall complete - data kept in " . $baseDir)');
+  L.push(':log info ("Uninstall complete - data kept in " . $baseDir)');
   L.push('# Wipe data IRREVERSIBLY - run by hand only: /file/remove [find where name=$baseDir]');
   return L.join('\n');
 }
