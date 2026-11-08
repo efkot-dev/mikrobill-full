@@ -440,7 +440,7 @@ function buildSetup(c){
   L.push('}');
   L.push('');
   L.push(':put "Installation complete!"');
-  L.push(':put "Watch progress: /log print follow where topics~"container""');
+  L.push(':put "Watch progress: /log print follow where topics~container"');
   L.push(':put ("Web: http://" . $containerIP . " (once the silent install finishes)")');
   return L.join('\n');
 }
