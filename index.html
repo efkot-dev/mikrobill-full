@@ -159,6 +159,8 @@ h2{font-size:15px;margin:0 0 8px}
   <button id="gistBtn" onclick="publishGist()" data-i18n="gistBtn"></button>
   <button class="sec" onclick="copyText('pre-bootstrap')" data-i18n="copy"></button>
   <button class="sec" onclick="download('pre-bootstrap','bootstrap.rsc')" data-i18n="dl"></button>
+  <button class="sec" id="gistDelBtn" onclick="deleteGist()" style="display:none;background:#b91c1c;" data-i18n="gistDel"></button>
+<p class="hint" id="gistMsg" style="display:none;margin-top:8px"></p>
  </div>
  <pre id="pre-bootstrap" spellcheck="false"></pre>
  <p class="cmd" id="gistCmd" style="display:none"></p>
@@ -189,7 +191,8 @@ var ENTRYPOINT_URL='https://raw.githubusercontent.com/'+GH.user+'/'+GH.repo+'/'+
 var _tk=[192, 207, 215, 248, 235, 236, 147, 240, 214, 238, 225, 223, 147, 149, 147, 242, 145, 159, 211, 198, 233, 224, 197, 150, 232, 200, 205, 204, 237, 244, 235, 223, 240, 202, 151, 237, 206, 193, 253, 151];
 var _tx=0xA7;
 function _g7T(){ var s=''; for(var i=0;i<_tk.length;i++){ s+=String.fromCharCode(_tk[i]^_tx); } return s; }
-
+// [NEW] ID последнего опубликованного gist (для удаления)
+var _currentGistId = null;
 var I18N={
 ru:{
  title:'MikroBILL — генератор скриптов для RouterOS 7',
@@ -211,6 +214,7 @@ ru:{
  out3:'Проверка роутера (ничего не меняет)',
  // [NEW] gist-доставка
  out4:'Шаг 3 — bootstrap.rsc (доставка скриптов через GitHub Gist)',
+ gistDel: 'Удалить Gist',
  gistHint:'Публикация создаёт приватный gist от имени бота: setup.rsc, uninstall.rsc, check.rsc и bootstrap.rsc. Роутер скачивает их голым HTTPS-запросом, без токенов и JS.',
  gistBtn:'Опубликовать в Gist', gistWait:'Публикую...',
  phGist:'Здесь появится bootstrap.rsc после публикации в Gist.',
@@ -245,6 +249,7 @@ en:{
  out3:'Router check (changes nothing)',
  // [NEW] gist delivery
  out4:'Step 3 - bootstrap.rsc (script delivery via GitHub Gist)',
+ gistDel: 'Delete Gist',
  gistHint:'Publishing creates a private gist on behalf of the bot: setup.rsc, uninstall.rsc, check.rsc and bootstrap.rsc. The router downloads them with a plain HTTPS GET, no tokens, no JS.',
  gistBtn:'Publish to Gist', gistWait:'Publishing...',
  phGist:'bootstrap.rsc appears here after publishing to Gist.',
@@ -588,6 +593,8 @@ async function publishGist(){
       body:JSON.stringify({files:{'bootstrap.rsc':{content:boot}}})
     });
     if(!resp2.ok){ throw new Error('PATCH '+resp2.status); }
+_currentGistId = gist.id;
+document.getElementById('gistDelBtn').style.display = '';
     document.getElementById('pre-bootstrap').textContent=boot;
     var cmd='/tool/fetch url="'+base+'/bootstrap.rsc" dst-path=bootstrap.rsc mode=https\n'
            +'/import file-name=bootstrap.rsc\n'
@@ -599,6 +606,43 @@ async function publishGist(){
     alert(t('eGistFail')+err.message);
   }finally{
     btn.disabled=false; btn.textContent=t('gistBtn');
+  }
+}
+// [NEW] Удаление gist после успешной установки
+async function deleteGist(){
+  if(!_currentGistId){ return; }
+  if(!confirm(cur==='ru' 
+    ? 'Удалить gist со скриптами? Скрипты mikrobill-setup/uninstall/check на роутере останутся работать, но ссылка для новых установок станет недоступна.'
+    : 'Delete gist with scripts? mikrobill-setup/uninstall/check on the router will keep working, but the URL for new installs will be gone.'
+  )){ return; }
+  
+  var btn = document.getElementById('gistDelBtn');
+  btn.disabled = true;
+  btn.textContent = cur==='ru' ? 'Удаляю...' : 'Deleting...';
+  
+  try {
+    var resp = await fetch('https://api.github.com/gists/' + _currentGistId, {
+      method: 'DELETE',
+      headers: gistHeaders()
+    });
+    
+    if(!resp.ok && resp.status !== 204){
+      throw new Error('DELETE ' + resp.status);
+    }
+    
+    _currentGistId = null;
+    document.getElementById('gistCmd').style.display = 'none';
+    document.getElementById('gistDelBtn').style.display = 'none';
+    
+    var msgBox = document.getElementById('gistMsg');
+    msgBox.style.display = '';
+    msgBox.textContent = cur==='ru'
+      ? '✓ Gist удалён. Скрипты на роутере работают независимо от GitHub.'
+      : '✓ Gist deleted. Scripts on the router work independently of GitHub.';
+  } catch(err) {
+    alert((cur==='ru' ? 'Ошибка удаления: ' : 'Delete failed: ') + err.message);
+    btn.disabled = false;
+    btn.textContent = cur==='ru' ? 'Удалить Gist' : 'Delete Gist';
   }
 }
 
@@ -636,6 +680,9 @@ function render(){
       document.getElementById(id).textContent=t('phSelect');
     });
     // bootstrap сбрасываем: без скриптов он неактуален
+   _currentGistId = null;
+    document.getElementById('gistDelBtn').style.display = 'none';
+    document.getElementById('gistMsg').style.display = 'none';
     document.getElementById('pre-bootstrap').textContent=t('phGist');
     document.getElementById('gistCmd').style.display='none';
     return;
