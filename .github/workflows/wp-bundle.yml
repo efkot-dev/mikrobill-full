@@ -1,0 +1,317 @@
+name: WP Bundle
+
+on:
+  schedule:
+    # Раз в неделю, понедельник 04:00 UTC (после daily auto-release MikroBILL).
+    # Нужно чаще — поменяйте на '0 4 * * *'.
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Пересобрать bundle, даже если релиз уже существует'
+        type: boolean
+        default: false
+
+concurrency:
+  group: wp-bundle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------
+  # 1. Сверка версий БЕЗ скачивания компонентов.
+  #    Если релиз с таким bundle hash уже есть — сборка пропускается.
+  # ---------------------------------------------------------------
+  check-bundle:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      tag: ${{ steps.check.outputs.tag }}
+      hash: ${{ steps.check.outputs.hash }}
+      core: ${{ steps.versions.outputs.core }}
+      core_url: ${{ steps.versions.outputs.core_url }}
+      kadence: ${{ steps.versions.outputs.kadence }}
+      kadence_blocks: ${{ steps.versions.outputs.kadence_blocks }}
+      fluentform: ${{ steps.versions.outputs.fluentform }}
+      fluent_smtp: ${{ steps.versions.outputs.fluent_smtp }}
+      llar: ${{ steps.versions.outputs.llar }}
+      updraftplus: ${{ steps.versions.outputs.updraftplus }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve component versions (API only, no downloads)
+        id: versions
+        run: |
+          set -euo pipefail
+          # -g: отключает globbing curl, иначе request[slug] ломает URL
+          api() { curl -fsSLg --retry 3 --retry-delay 5 --retry-all-errors "$1"; }
+
+          #Localized ru_RU-сборка core уже содержит language pack в wp-content/languages
+          CORE_JSON=$(api 'https://api.wordpress.org/core/version-check/1.7/?locale=ru_RU')
+          CORE=$(jq -r '[.offers[] | select(.locale=="ru_RU")][0].version // empty' <<<"$CORE_JSON")
+          CORE_URL=$(jq -r '[.offers[] | select(.locale=="ru_RU")][0].download // empty' <<<"$CORE_JSON")
+
+          KADENCE=$(api 'https://api.wordpress.org/themes/info/1.2/?action=theme_information&request[slug]=kadence' | jq -r '.version // empty')
+          KB=$(api 'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request[slug]=kadence-blocks' | jq -r '.version // empty')
+          FF=$(api 'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request[slug]=fluentform' | jq -r '.version // empty')
+          FS=$(api 'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request[slug]=fluent-smtp' | jq -r '.version // empty')
+          LLAR=$(api 'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request[slug]=limit-login-attempts-reloaded' | jq -r '.version // empty')
+          UP=$(api 'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request[slug]=updraftplus' | jq -r '.version // empty')
+
+          # Санити: API мог вернуть error/null — не пускаем мусор в тег
+          re='^[0-9][0-9A-Za-z.-]*$'
+          for v in "$CORE" "$KADENCE" "$KB" "$FF" "$FS" "$LLAR" "$UP"; do
+            [[ "$v" =~ $re ]] || { echo "::error::Bad version resolved: '$v'"; exit 1; }
+          done
+          [[ "$CORE_URL" == https://* ]] || { echo "::error::Bad core URL: '$CORE_URL'"; exit 1; }
+
+          {
+            echo "core=$CORE"
+            echo "core_url=$CORE_URL"
+            echo "kadence=$KADENCE"
+            echo "kadence_blocks=$KB"
+            echo "fluentform=$FF"
+            echo "fluent_smtp=$FS"
+            echo "llar=$LLAR"
+            echo "updraftplus=$UP"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compute bundle hash and check existing release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+          CORE: ${{ steps.versions.outputs.core }}
+          KADENCE: ${{ steps.versions.outputs.kadence }}
+          KB: ${{ steps.versions.outputs.kadence_blocks }}
+          FF: ${{ steps.versions.outputs.fluentform }}
+          FS: ${{ steps.versions.outputs.fluent_smtp }}
+          LLAR: ${{ steps.versions.outputs.llar }}
+          UP: ${{ steps.versions.outputs.updraftplus }}
+        run: |
+          set -euo pipefail
+          GUARD=wp/mikrobill-guard.php
+          [ -s "$GUARD" ] || { echo "::error::$GUARD not found in repo"; exit 1; }
+          GUARD_SHA=$(sha256sum "$GUARD" | awk '{print $1}')
+
+          # Каноническая строка версий: порядок фиксирован, schema=1 на случай
+          # смены формата bundle в будущем. Правка guard тоже меняет hash.
+          KEY_SRC=$(printf '%s\n' \
+            "schema=1" \
+            "core=${CORE}" \
+            "core_locale=ru_RU" \
+            "kadence=${KADENCE}" \
+            "kadence-blocks=${KB}" \
+            "fluentform=${FF}" \
+            "fluent-smtp=${FS}" \
+            "limit-login-attempts-reloaded=${LLAR}" \
+            "updraftplus=${UP}" \
+            "guard=${GUARD_SHA}")
+          HASH=$(printf '%s' "$KEY_SRC" | sha256sum | awk '{print $1}')
+          SHORT=${HASH:0:12}
+          TAG="wp-bundle-${SHORT}"
+
+          BUILD=true
+          if [ "${FORCE:-false}" = "true" ]; then
+            echo "Force rebuild requested."
+          elif gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx 'wp-bundle.zip'; then
+            BUILD=false
+            echo "✅ $TAG already published with wp-bundle.zip — skipping download/build."
+          else
+            echo "🚀 $TAG not found — bundle build required."
+          fi
+
+          {
+            echo "hash=$SHORT"
+            echo "tag=$TAG"
+            echo "build=$BUILD"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### WP bundle check"
+            echo "| Компонент | Версия |"
+            echo "|---|---|"
+            echo "| WordPress (ru_RU) | $CORE |"
+            echo "| Kadence | $KADENCE |"
+            echo "| Kadence Blocks | $KB |"
+            echo "| Fluent Forms Lite | $FF |"
+            echo "| FluentSMTP | $FS |"
+            echo "| Limit Login Attempts Reloaded | $LLAR |"
+            echo "| UpdraftPlus | $UP |"
+            echo ""
+            echo "tag: \`$TAG\` → build: **$BUILD**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------
+  # 2. Скачивание + сборка + публикация. Только если hash изменился.
+  # ---------------------------------------------------------------
+  build-bundle:
+    needs: check-bundle
+    if: needs.check-bundle.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      CORE: ${{ needs.check-bundle.outputs.core }}
+      CORE_URL: ${{ needs.check-bundle.outputs.core_url }}
+      KADENCE: ${{ needs.check-bundle.outputs.kadence }}
+      KB: ${{ needs.check-bundle.outputs.kadence_blocks }}
+      FF: ${{ needs.check-bundle.outputs.fluentform }}
+      FS: ${{ needs.check-bundle.outputs.fluent_smtp }}
+      LLAR: ${{ needs.check-bundle.outputs.llar }}
+      UP: ${{ needs.check-bundle.outputs.updraftplus }}
+      BUNDLE_HASH: ${{ needs.check-bundle.outputs.hash }}
+      TAG: ${{ needs.check-bundle.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache component downloads (keyed by bundle hash)
+        uses: actions/cache@v4
+        with:
+          path: downloads
+          key: wp-components-${{ needs.check-bundle.outputs.hash }}
+
+      - name: Download components (pinned versions)
+        run: |
+          set -euo pipefail
+          mkdir -p downloads
+          fetch() {
+            local url="$1" out="$2"
+            # Уже скачано (cache hit) и zip цел — не перекачиваем
+            if [ -s "$out" ] && unzip -tqq "$out" >/dev/null 2>&1; then
+              echo "✓ cached: $out"
+              return 0
+            fi
+            echo "↓ $url"
+            curl -fL --retry 3 --retry-delay 5 --retry-all-errors -o "$out" "$url"
+            unzip -tqq "$out" >/dev/null
+          }
+          fetch "$CORE_URL" downloads/wordpress-ru_RU.zip
+          fetch "https://downloads.wordpress.org/theme/kadence.${KADENCE}.zip" downloads/kadence.zip
+          fetch "https://downloads.wordpress.org/plugin/kadence-blocks.${KB}.zip" downloads/kadence-blocks.zip
+          fetch "https://downloads.wordpress.org/plugin/fluentform.${FF}.zip" downloads/fluentform.zip
+          fetch "https://downloads.wordpress.org/plugin/fluent-smtp.${FS}.zip" downloads/fluent-smtp.zip
+          fetch "https://downloads.wordpress.org/plugin/limit-login-attempts-reloaded.${LLAR}.zip" downloads/limit-login-attempts-reloaded.zip
+          fetch "https://downloads.wordpress.org/plugin/updraftplus.${UP}.zip" downloads/updraftplus.zip
+
+      - name: Verify archives (version, language pack, main files)
+        run: |
+          set -euo pipefail
+          # Версия core внутри архива должна совпадать с заявленной
+          INNER=$(unzip -p downloads/wordpress-ru_RU.zip wordpress/wp-includes/version.php \
+            | awk -F"'" '/[$]wp_version *=/ {print $2; exit}')
+          [ "$INNER" = "$CORE" ] || { echo "::error::core mismatch: archive=$INNER expected=$CORE"; exit 1; }
+
+          # grep через переменную, а не pipe: исключаем SIGPIPE при pipefail
+          LIST=$(unzip -l downloads/wordpress-ru_RU.zip)
+          grep -q 'wp-content/languages/ru_RU.mo' <<<"$LIST" \
+            || { echo "::error::ru_RU language pack missing in core archive"; exit 1; }
+
+          check_entry() {
+            local list
+            list=$(unzip -l "$1")
+            grep -q "$2" <<<"$list" || { echo "::error::$1: missing $2"; exit 1; }
+          }
+          check_entry downloads/kadence.zip 'kadence/style.css'
+          check_entry downloads/kadence-blocks.zip 'kadence-blocks/kadence-blocks.php'
+          check_entry downloads/fluentform.zip 'fluentform/fluentform.php'
+          check_entry downloads/fluent-smtp.zip 'fluent-smtp/fluent-smtp.php'
+          check_entry downloads/limit-login-attempts-reloaded.zip 'limit-login-attempts-reloaded/limit-login-attempts-reloaded.php'
+          check_entry downloads/updraftplus.zip 'updraftplus/updraftplus.php'
+          echo "All archives verified."
+
+      - name: Assemble bundle and manifest
+        run: |
+          set -euo pipefail
+          mkdir -p staging/mu-plugins
+          cp downloads/*.zip staging/
+          cp wp/mikrobill-guard.php staging/mu-plugins/mikrobill-guard.php
+
+          sha() { sha256sum "$1" | awk '{print $1}'; }
+          jq -n \
+            --arg hash "$BUNDLE_HASH" \
+            --arg core "$CORE" --arg core_url "$CORE_URL" --arg core_sha "$(sha staging/wordpress-ru_RU.zip)" \
+            --arg kadence "$KADENCE" --arg kadence_sha "$(sha staging/kadence.zip)" \
+            --arg kb "$KB" --arg kb_sha "$(sha staging/kadence-blocks.zip)" \
+            --arg ff "$FF" --arg ff_sha "$(sha staging/fluentform.zip)" \
+            --arg fs "$FS" --arg fs_sha "$(sha staging/fluent-smtp.zip)" \
+            --arg llar "$LLAR" --arg llar_sha "$(sha staging/limit-login-attempts-reloaded.zip)" \
+            --arg up "$UP" --arg up_sha "$(sha staging/updraftplus.zip)" \
+            --arg guard_sha "$(sha staging/mu-plugins/mikrobill-guard.php)" \
+            '{
+              schema: 1,
+              bundle_hash: $hash,
+              built_at: (now | todate),
+              core: { version: $core, locale: "ru_RU", url: $core_url, file: "wordpress-ru_RU.zip", sha256: $core_sha },
+              theme: { kadence: { version: $kadence, file: "kadence.zip", sha256: $kadence_sha } },
+              plugins: {
+                "kadence-blocks": { version: $kb, file: "kadence-blocks.zip", sha256: $kb_sha },
+                "fluentform": { version: $ff, file: "fluentform.zip", sha256: $ff_sha },
+                "fluent-smtp": { version: $fs, file: "fluent-smtp.zip", sha256: $fs_sha },
+                "limit-login-attempts-reloaded": { version: $llar, file: "limit-login-attempts-reloaded.zip", sha256: $llar_sha },
+                "updraftplus": { version: $up, file: "updraftplus.zip", sha256: $up_sha }
+              },
+              mu_plugins: { "mikrobill-guard": { file: "mu-plugins/mikrobill-guard.php", sha256: $guard_sha } }
+            }' > staging/manifest.json
+          cp staging/manifest.json manifest.json
+          echo "manifest.json:" && cat manifest.json
+
+      - name: Pack wp-bundle.zip
+        run: |
+          set -euo pipefail
+          (cd staging && zip -qr -X ../wp-bundle.zip .)
+          unzip -tqq wp-bundle.zip >/dev/null
+          sha256sum wp-bundle.zip | awk '{print $1"  wp-bundle.zip"}' > wp-bundle.zip.sha256
+          ls -la wp-bundle.zip && cat wp-bundle.zip.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp-bundle
+          path: |
+            wp-bundle.zip
+            wp-bundle.zip.sha256
+            manifest.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        run: |
+          set -euo pipefail
+          {
+            echo "## WP bundle \`$TAG\`"
+            echo ""
+            echo "| Компонент | Версия |"
+            echo "|---|---|"
+            echo "| WordPress core (ru_RU, включая language pack) | $CORE |"
+            echo "| Kadence (theme) | $KADENCE |"
+            echo "| Kadence Blocks | $KB |"
+            echo "| Fluent Forms Lite | $FF |"
+            echo "| FluentSMTP | $FS |"
+            echo "| Limit Login Attempts Reloaded | $LLAR |"
+            echo "| UpdraftPlus | $UP |"
+            echo "| mikrobill-guard (mu-plugin) | из репозитория |"
+            echo ""
+            echo "**bundle hash:** \`$BUNDLE_HASH\`"
+            echo "**sha256 wp-bundle.zip:** \`$(awk '{print $1}' wp-bundle.zip.sha256)\`"
+            echo ""
+            echo "Установка и обновление — только оффлайн из образа mikrobill-full."
+            echo "entrypoint сравнивает bundle hash с применённым и обновляет WP при изменении."
+          } > release-notes.md
+
+          # force-пересборка: релиз с таким тегом мог уже существовать — перезаписываем assets
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" wp-bundle.zip wp-bundle.zip.sha256 manifest.json \
+              --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" wp-bundle.zip wp-bundle.zip.sha256 manifest.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "WP bundle: WordPress $CORE (ru_RU)" \
+              --notes-file release-notes.md
+          fi
+          echo "✅ Published: $TAG" >> "$GITHUB_STEP_SUMMARY"
