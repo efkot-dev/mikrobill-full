@@ -158,6 +158,15 @@ mysqlcheck -uroot --auto-repair --all-databases 2>/dev/null || true
 # --- Apache (web + ACME HTTP-01) ---
 apachectl start >/dev/null 2>&1
 
+# --- Optional WordPress business-card site (ENABLE_WP=1) ---
+if [ "${ENABLE_WP:-0}" = "1" ]; then
+    if [ -f /opt/wp-setup.sh ]; then
+        bash /opt/wp-setup.sh || echo "WARNING: WordPress setup failed; MikroBILL continues (see [wp] log above)."
+    else
+        echo "WARNING: ENABLE_WP=1 but /opt/wp-setup.sh missing in image."
+    fi
+fi
+
 # --- Version selection: stable (default) or beta ---
 MB_VERSION="${MB_VERSION:-stable}"
 
