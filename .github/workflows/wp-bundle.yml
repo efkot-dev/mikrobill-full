@@ -315,3 +315,35 @@ jobs:
               --notes-file release-notes.md
           fi
           echo "✅ Published: $TAG" >> "$GITHUB_STEP_SUMMARY"
+  # ---------------------------------------------------------------
+  # 3. Ручной запуск, когда релиз уже существует: не пересобираем,
+  #    а отдаём уже опубликованный bundle как артефакт прогона.
+  # ---------------------------------------------------------------
+  reuse-existing:
+    needs: check-bundle
+    if: needs.check-bundle.outputs.build == 'false' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.check-bundle.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download published bundle assets (no rebuild, no component downloads)
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern wp-bundle.zip --pattern wp-bundle.zip.sha256 --pattern manifest.json
+          sha256sum -c wp-bundle.zip.sha256
+          echo "✅ Reused published bundle: $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp-bundle
+          path: |
+            wp-bundle.zip
+            wp-bundle.zip.sha256
+            manifest.json
+          retention-days: 14
+          if-no-files-found: error
