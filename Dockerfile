@@ -72,14 +72,6 @@ RUN mkdir -p /opt/wp-installers && \
     rm -f /tmp/wp-bundle.zip && \
     jq -r '.bundle_hash' /opt/wp-installers/manifest.json > /opt/wp-installers/BUNDLE_HASH
 
-# acme.sh: штатный --nocron обходит pre-check crontab без заглушек.
-RUN set -e; \
-    curl -fsSL https://get.acme.sh -o /tmp/acme-bootstrap.sh; \
-    head -n1 /tmp/acme-bootstrap.sh | grep -q '^#!/'; \
-    sh /tmp/acme-bootstrap.sh email=acme@example.com --nocron; \
-    test -x /root/.acme.sh/acme.sh; \
-    rm -f /tmp/acme-bootstrap.sh
-
 # WP-CLI для оффлайн-установки/обновления WordPress (пин версии)
 RUN curl -fsSL -o /usr/local/bin/wp \
       https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar && \
@@ -88,6 +80,9 @@ RUN curl -fsSL -o /usr/local/bin/wp \
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+COPY wp-setup.sh /opt/wp-setup.sh
+RUN chmod +x /opt/wp-setup.sh
 
 EXPOSE 80 443 7402 3306
 
