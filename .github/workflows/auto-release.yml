@@ -4,15 +4,26 @@ on:
   schedule:
     # Запуск каждый день в 03:00 UTC
     - cron: '0 3 * * *'
-  workflow_dispatch: # Кнопка для ручного запуска во вкладке Actions
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Пересобрать образ, даже если версия MikroBILL и WP-bundle не изменились'
+        type: boolean
+        default: false
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     outputs:
-      version: ${{ steps.check.outputs.version }}
-      hash: ${{ steps.check.outputs.hash }}
+      version: ${{ steps.meta.outputs.version }}
+      hash: ${{ steps.meta.outputs.hash }}
       build: ${{ steps.check.outputs.build }}
+      wp_tag: ${{ steps.wp.outputs.wp_tag }}
+      wp_hash: ${{ steps.wp.outputs.wp_hash }}
     steps:
       - name: Download stable archive
         run: |
@@ -22,14 +33,34 @@ jobs:
         run: |
           wget -q -O beta.zip https://mikro-bill.com/downloads/beta
 
-      - name: Extract version from DLL/EXE date
-        id: check
+      - name: Resolve WP bundle release (manifest only, no zip download yet)
+        id: wp
         run: |
+          set -euo pipefail
+          TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName \
+            --jq '[.[] | select(.tagName | startswith("wp-bundle-"))][0].tagName // empty')
+          if [ -z "$TAG" ]; then
+            echo "::error::No wp-bundle-* release found. Run the 'WP Bundle' workflow manually first."
+            exit 1
+          fi
+          # Тянем только manifest.json (~1 KB), сам zip — лишь если будет сборка
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern manifest.json
+          WP_HASH=$(jq -r '.bundle_hash' manifest.json)
+          re='^[0-9a-f]{12}$'
+          [[ "$WP_HASH" =~ $re ]] || { echo "::error::Bad bundle_hash in manifest: '$WP_HASH'"; exit 1; }
+          echo "wp_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "wp_hash=$WP_HASH" >> "$GITHUB_OUTPUT"
+          echo "WP bundle: $TAG"
+
+      - name: Extract version from DLL/EXE date
+        id: meta
+        run: |
+          set -euo pipefail
           HASH=$(sha256sum stable.zip | awk '{print $1}')
-          
+
           # Ищем дату модификации MikroBILL.dll или .exe внутри архива
           DATE_STR=$(unzip -l stable.zip | grep -iE "MikroBILL\.(dll|exe)" | head -n 1 | awk '{print $2}')
-          
+
           if [ -n "$DATE_STR" ]; then
             VERSION=$(date -d "$DATE_STR" +"%d%m%Y")
             echo "Found date in binary: $DATE_STR -> Docker Tag: $VERSION"
@@ -37,19 +68,58 @@ jobs:
             VERSION="sha-${HASH:0:8}"
             echo "Binary not found in archive, using hash: $VERSION"
           fi
-          
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "hash=$HASH" >> $GITHUB_OUTPUT
-          
-          # Проверяем, существует ли уже такой тег в Docker Hub
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether to build
+        id: check
+        env:
+          FORCE: ${{ inputs.force }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          WP_HASH: ${{ steps.wp.outputs.wp_hash }}
+        run: |
+          set -euo pipefail
+          BUILD=false
+          REASON="nothing changed"
+
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/mikrobill-full/tags/${VERSION}")
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "build=false" >> $GITHUB_OUTPUT
-            echo "✅ Version $VERSION already exists on Docker Hub. Skipping build."
+
+          if [ "${FORCE:-false}" = "true" ]; then
+            BUILD=true; REASON="force rebuild requested"
+          elif [ "$HTTP_CODE" != "200" ]; then
+            BUILD=true; REASON="new MikroBILL version $VERSION"
           else
-            echo "build=true" >> $GITHUB_OUTPUT
-            echo "🚀 New version $VERSION found! Triggering build."
+            # Образ с таким тегом уже есть. Пересобираем, только если сменился WP-bundle.
+            # Маркер последнего auto-release: **WP bundle:** `wp-bundle-<hash>`
+            PREV_TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName \
+              --jq '[.[] | select(.tagName | startswith("v"))][0].tagName // empty')
+            PREV_WP=""
+            if [ -n "$PREV_TAG" ]; then
+              PREV_BODY=$(gh release view "$PREV_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""')
+              PREV_WP=$(grep -oE 'wp-bundle-[0-9a-f]{12}' <<<"$PREV_BODY" | head -n1 || true)
+            fi
+            if [ "$PREV_WP" != "wp-bundle-${WP_HASH}" ]; then
+              BUILD=true; REASON="WP bundle changed: ${PREV_WP:-none} -> wp-bundle-${WP_HASH}"
+            fi
           fi
+
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          if [ "$BUILD" = "true" ]; then
+            echo "🚀 Build required: $REASON"
+          else
+            echo "✅ Skipping build: $REASON"
+          fi
+
+      - name: Download WP bundle archive
+        if: steps.check.outputs.build == 'true'
+        env:
+          WP_TAG: ${{ steps.wp.outputs.wp_tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$WP_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern wp-bundle.zip --pattern wp-bundle.zip.sha256
+          sha256sum -c wp-bundle.zip.sha256
 
       - name: Upload stable artifact
         if: steps.check.outputs.build == 'true'
@@ -64,6 +134,15 @@ jobs:
         with:
           name: beta-zip
           path: beta.zip
+
+      - name: Upload WP bundle artifact
+        if: steps.check.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp-bundle-zip
+          path: |
+            wp-bundle.zip
+            wp-bundle.zip.sha256
 
   build-and-push:
     needs: check-version
@@ -85,6 +164,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: beta-zip
+          path: .
+
+      - name: Download wp-bundle.zip
+        uses: actions/download-artifact@v4
+        with:
+          name: wp-bundle-zip
           path: .
 
       - name: Set up Docker Buildx
@@ -115,4 +200,5 @@ jobs:
             Auto-release for MikroBILL based on binary modification date.
             **Tag:** `${{ needs.check-version.outputs.version }}`
             **SHA256:** `${{ needs.check-version.outputs.hash }}`
+            **WP bundle:** `${{ needs.check-version.outputs.wp_tag }}`
           files: stable.zip
