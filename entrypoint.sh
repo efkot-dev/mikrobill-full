@@ -118,6 +118,10 @@ done
 mysql -uroot <<SQL || true
 -- Очистка анонимных пользователей во избежание конфликтов прав
 DELETE FROM mysql.user WHERE user = '';
+DELETE FROM mysql.user WHERE user = 'PUBLIC';
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+
 
 -- Создание базы данных
 CREATE DATABASE IF NOT EXISTS ${DB_NAME_SQL} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -152,36 +156,51 @@ apachectl start >/dev/null 2>&1
 
 # --- Version selection: stable (default) or beta ---
 MB_VERSION="${MB_VERSION:-stable}"
-echo "Selected MikroBILL version: $MB_VERSION"
 
-# --- Installer preparation based on MB_VERSION ---
-if [ "$MB_VERSION" = "beta" ]; then
-    echo "Preparing beta installer..."
-    if [ -f /opt/mikrobill-beta.zip ]; then
-        echo "Unpacking beta installer from image..."
-        mkdir -p "$INSTALL_DIR"
-        rm -rf "$INSTALL_DIR"/*
-        unzip -o /opt/mikrobill-beta.zip -d "$INSTALL_DIR"
-    else
-        echo "Beta archive not found in image - downloading fresh copy..."
-        mkdir -p "$INSTALL_DIR"
-        if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/beta; then
-            unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
+# --- Install flag: both artifacts live on the mounted storage, so they survive
+# container restarts and recreates. While both exist we never touch INSTALL_DIR.
+MB_INSTALLED=0
+if [ -f /var/MikroBILL/MikroBILL.xml ] && [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
+    MB_INSTALLED=1
+fi
+
+# --- Installer preparation: only when install is missing or broken ---
+if [ "$MB_INSTALLED" != "1" ]; then
+    echo "First run (or broken install) - selected MikroBILL version: $MB_VERSION"
+    if [ "$MB_VERSION" = "beta" ]; then
+        echo "Preparing beta installer..."
+        if [ -f /opt/mikrobill-beta.zip ]; then
+            echo "Unpacking beta installer from image..."
+            rm -rf "$INSTALL_DIR"
+            mkdir -p "$INSTALL_DIR"
+            unzip -o /opt/mikrobill-beta.zip -d "$INSTALL_DIR" || echo "ERROR: cannot unpack beta archive"
         else
-            echo "ERROR: cannot download MikroBILL beta installer"
+            echo "Beta archive not found in image - downloading fresh copy..."
+            mkdir -p "$INSTALL_DIR"
+            if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/beta; then
+                unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
+            else
+                echo "ERROR: cannot download MikroBILL beta installer"
+            fi
+        fi
+    else
+        echo "Preparing stable installer..."
+        # --- Installer self-heal: image may lack it ---
+        if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
+            echo "Installer not found in image - downloading fresh copy..."
+            mkdir -p "$INSTALL_DIR"
+            if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/stable; then
+                unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
+            else
+                echo "ERROR: cannot download MikroBILL installer"
+            fi
         fi
     fi
 else
-    echo "Preparing stable installer..."
-    # --- Installer self-heal: image may lack it ---
-    if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
-        echo "Installer not found in image - downloading fresh copy..."
-        mkdir -p "$INSTALL_DIR"
-        if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/stable; then
-            unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
-        else
-            echo "ERROR: cannot download MikroBILL installer"
-        fi
+    INSTALLED_CHANNEL=$(cat /var/MikroBILL/mb_channel 2>/dev/null || echo "unknown")
+    echo "MikroBILL already installed (channel: $INSTALLED_CHANNEL) - installer preparation skipped"
+    if [ "$INSTALLED_CHANNEL" != "unknown" ] && [ "$INSTALLED_CHANNEL" != "$MB_VERSION" ]; then
+        echo "NOTE: MB_VERSION=$MB_VERSION differs from installed channel; channel applies only to a fresh install (wipe data dir to switch)"
     fi
 fi
 
@@ -230,6 +249,7 @@ if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
     dotnet "$INSTALL_DIR/MikroBILL.dll" /SILENT_INSTALL="$INSTALL_JSON" || INSTALL_RC=$?
     if [ -f /var/MikroBILL/MikroBILL.xml ] && [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
         echo "Silent install finished (rc=$INSTALL_RC), artifacts present - continuing"
+        printf '%s' "$MB_VERSION" > /var/MikroBILL/mb_channel
     else
         echo "MikroBILL silent install FAILED (rc=$INSTALL_RC), artifacts missing"
     fi
