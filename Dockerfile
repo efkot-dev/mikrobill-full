@@ -19,7 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apache2 \
     php8.4 php8.4-cli libapache2-mod-php8.4 \
     php8.4-mysql php8.4-curl php8.4-mbstring php8.4-xml php8.4-gmp php8.4-common \
-    && rm -rf /var/lib/apt/lists/*
+    php8.4-gd php8.4-zip php8.4-intl \
+    cron \
+    && rm -rf /var/lib/apt/lists/* \
+    && php -m | grep -qi '^exif$'
 
 # Настройка PHP и Apache.
 RUN set -eux; \
@@ -61,6 +64,14 @@ RUN mkdir -p /opt/mikrobill-installer && \
     unzip -o /tmp/stable.zip -d /opt/mikrobill-installer && \
     rm -f /tmp/stable.zip
 
+# WP-bundle: компоненты WordPress для оффлайн-установки/обновления (ENABLE_WP=1).
+# Собирается workflow wp-bundle.yml, скачивается auto-release из GitHub Release.
+COPY wp-bundle.zip /tmp/wp-bundle.zip
+RUN mkdir -p /opt/wp-installers && \
+    unzip -o /tmp/wp-bundle.zip -d /opt/wp-installers && \
+    rm -f /tmp/wp-bundle.zip && \
+    jq -r '.bundle_hash' /opt/wp-installers/manifest.json > /opt/wp-installers/BUNDLE_HASH
+
 # acme.sh: штатный --nocron обходит pre-check crontab без заглушек.
 RUN set -e; \
     curl -fsSL https://get.acme.sh -o /tmp/acme-bootstrap.sh; \
@@ -68,6 +79,12 @@ RUN set -e; \
     sh /tmp/acme-bootstrap.sh email=acme@example.com --nocron; \
     test -x /root/.acme.sh/acme.sh; \
     rm -f /tmp/acme-bootstrap.sh
+
+# WP-CLI для оффлайн-установки/обновления WordPress (пин версии)
+RUN curl -fsSL -o /usr/local/bin/wp \
+      https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar && \
+    echo "ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c  /usr/local/bin/wp" | sha256sum -c - && \
+    chmod +x /usr/local/bin/wp
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
