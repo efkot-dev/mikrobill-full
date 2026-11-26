@@ -1,14 +1,19 @@
 #!/bin/bash
 # MikroBILL: optional WordPress-визитка. Вызывается из entrypoint.sh при ENABLE_WP=1.
-# Только WP (vhost MikroBILL не трогаем). Оффлайн из /opt/wp-installers.
-# Режимы: WP_DOMAIN не задан -> port mode (*:8080, siteurl=http://IP:8080);
-#         WP_DOMAIN задан     -> name mode (80/443 по имени, админка Require ip).
+# Только WP: vhost MikroBILL не трогаем (им управляет сам MikroBILL).
+# Оффлайн-установка/обновление из /opt/wp-installers (WP-bundle).
+#
+# Режимы:
+#   WP_DOMAIN не задан -> PORT mode: vhost *:8080, siteurl=http://CONTAINER_IP:8080,
+#                        доступно только из служебной сети (8080 не публикуется через NAT).
+#   WP_DOMAIN задан     -> NAME mode: vhost по имени на 80/443, админка ограничена Require ip.
+#
+# Сеть админки: считается из CONTAINER_IP/CONTAINER_MASK (пишет генератор в envs),
+#               дополнительно расширяется через WP_ADMIN_NETWORKS.
 set -u
-# Свой лог в UTF-8: читается через cat/fetch, а не через /log микрота.
-exec > >(tee -a /mikrobill-data/wp-setup.log) 2>&1
 
 WP_INSTALLERS=/opt/wp-installers
-WP_DIR=/var/www/site
+WP_DIR=/var/www/site                 # symlink -> /mikrobill-data/wp
 WP_DATA=/mikrobill-data/wp
 SECRET_DIR=/mikrobill-data/secrets
 SSL_DIR=/mikrobill-data/ssl
@@ -19,12 +24,16 @@ ENV_FILE=/mikrobill-data/wp-env.sh
 STATE_FILE="$WP_DATA/.mb-wp-state"
 export WP_CLI_DISABLE_AUTO_CHECK_UPDATE=1
 
+# Свой лог в UTF-8: читается через `cat /mikrobill-data/wp-setup.log`,
+# а не через /log микрота (там ломается кириллица).
+exec > >(tee -a /mikrobill-data/wp-setup.log) 2>&1
+
 log()  { echo "[wp] $*"; }
 warn() { echo "[wp] WARNING: $*"; }
 err()  { echo "[wp] ERROR: $*"; }
 sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
 
-# ---------- Apache shared hardening (без основного Directory) ----------
+# ---------- Apache shared blocks ----------
 ACME_BLOCK=$(cat <<'EOF'
     Alias /.well-known/acme-challenge/ /var/www/letsencrypt/.well-known/acme-challenge/
     <Directory /var/www/letsencrypt/.well-known/acme-challenge>
@@ -57,7 +66,17 @@ WP_HARDEN=$(cat <<'EOF'
 EOF
 )
 
-# name mode: дашборд/вход только служебная сеть; admin-ajax/admin-post открыты (формы)
+WP_DOCROOT_BLOCK=$(cat <<'EOF'
+    DocumentRoot /var/www/site
+    <Directory /var/www/site>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+EOF
+)
+
+# NAME mode: дашборд/вход только служебная сеть; admin-ajax/admin-post открыты (формы).
 wp_admin_restrict() {
 cat <<EOF
     <LocationMatch "^/wp-admin/(?!admin-ajax\.php|admin-post\.php)">
@@ -69,17 +88,8 @@ cat <<EOF
 EOF
 }
 
-WP_DOCROOT_BLOCK=$(cat <<'EOF'
-    DocumentRoot /var/www/site
-    <Directory /var/www/site>
-        Options -Indexes +FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
-EOF
-)
-
 # ---------- network ----------
+# Адрес сети из "ip/префикс". Пример: 192.168.88.10/24 -> 192.168.88.0/24.
 calc_service_net() {
     local cidr="$1" ip prefix o1 o2 o3 o4 ipint mask net
     ip=${cidr%/*}; prefix=${cidr#*/}
@@ -90,22 +100,8 @@ calc_service_net() {
     echo "$(( (net>>24)&255 )).$(( (net>>16)&255 )).$(( (net>>8)&255 )).$(( net&255 ))/$prefix"
 }
 
-detect_network() {
-    CIDR=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4; exit}')
-    [ -z "$CIDR" ] && CIDR=$(ip -4 -o addr show 2>/dev/null | awk '$2!="lo"{print $4; exit}')
-    IP_AUTO=${CIDR%/*}
-    if [ -n "$CIDR" ]; then
-        SERVICE_NET=$(calc_service_net "$CIDR")
-    elif [ -n "${CONTAINER_IP:-}" ]; then
-        SERVICE_NET=$(calc_service_net "${CONTAINER_IP}/24")
-        IP_AUTO=$CONTAINER_IP
-        warn "service net guessed from CONTAINER_IP/24: $SERVICE_NET"
-    else
-        SERVICE_NET="127.0.0.0/8"
-        warn "cannot detect service network; set WP_ADMIN_NETWORKS!"
-    fi
-    EXTRA_NETS=$(printf '%s' "${WP_ADMIN_NETWORKS:-}" | tr ',' ' ' | tr -s ' ')
-    REQ_IP="$SERVICE_NET $EXTRA_NETS"
+apache_running() {
+    pidof apache2 >/dev/null 2>&1 || pgrep -x apache2 >/dev/null 2>&1
 }
 
 # ---------- prepare ----------
@@ -140,8 +136,13 @@ REVOKE FILE ON *.* FROM '${u}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 
-    detect_network
-    IP=${CONTAINER_IP:-$IP_AUTO}
+    # Единственный источник правды — envs из setup.rsc.
+    IP=${CONTAINER_IP:-}
+    [ -n "$IP" ] || { err "CONTAINER_IP not set in env - check setup.rsc"; return 1; }
+    MASK=${CONTAINER_MASK:-24}
+    SERVICE_NET=$(calc_service_net "$IP/$MASK")
+    EXTRA_NETS=$(printf '%s' "${WP_ADMIN_NETWORKS:-}" | tr ',' ' ' | tr -s ' ')
+    REQ_IP="$SERVICE_NET $EXTRA_NETS"
 
     if [ -n "${WP_DOMAIN:-}" ]; then
         MODE=name
@@ -152,8 +153,7 @@ SQL
     else
         MODE=port
         APEX=""
-        WP_ADMIN_EMAIL=${WP_ADMIN_EMAIL:-admin@localhost}
-        [ -n "$IP" ] || { err "port mode needs CONTAINER_IP (cannot detect interface IP)"; return 1; }
+        WP_ADMIN_EMAIL=${WP_ADMIN_EMAIL:-admin@example.com}
         BASE="http://${IP}:8080"
     fi
     log "mode=$MODE base=$BASE admin-net=$REQ_IP"
@@ -164,6 +164,7 @@ WP_DOMAIN='${WP_DOMAIN:-}'
 WP_MODE='$MODE'
 APEX='$APEX'
 IP='$IP'
+MASK='$MASK'
 SERVICE_NET='$SERVICE_NET'
 EXTRA_NETS='$EXTRA_NETS'
 REQ_IP='$REQ_IP'
@@ -172,7 +173,7 @@ SSL_DIR='$SSL_DIR'
 EOF
 }
 
-# ---------- wp-config extra ----------
+# ---------- wp-config extra PHP ----------
 build_extra_php() {
     local s k
     s="define('FS_METHOD','direct');\n"
@@ -311,7 +312,7 @@ wp_set_urls() {
 # ---------- Apache vhosts ----------
 wp_apache_port() {
     cat > "$APACHE_AVAIL/mb-wp.conf" <<EOF
-# MikroBILL WordPress — PORT mode (no domain), generated by wp-setup.sh
+# MikroBILL WordPress - PORT mode (no domain), generated by wp-setup.sh
 <VirtualHost *:8080>
     ServerName $IP
 $WP_DOCROOT_BLOCK
@@ -322,7 +323,7 @@ EOF
 
 wp_apache_name() {
     local cert="$1" f="$APACHE_AVAIL/mb-wp.conf"
-    echo "# MikroBILL WordPress — NAME mode, generated by wp-setup.sh" > "$f"
+    echo "# MikroBILL WordPress - NAME mode, generated by wp-setup.sh" > "$f"
     if [ "$cert" = 1 ]; then
         cat >> "$f" <<EOF
 <VirtualHost *:80>
@@ -391,7 +392,7 @@ EOF
 }
 
 wp_apache_apply() {
-    local mode="$1" cert="$2" action="${3:-boot}" out
+    local mode="$1" cert="$2" out i
     if [ "$mode" = port ]; then
         wp_apache_port
         grep -q '^Listen 8080' /etc/apache2/ports.conf 2>/dev/null || echo 'Listen 8080' >> /etc/apache2/ports.conf
@@ -409,14 +410,27 @@ wp_apache_apply() {
         fi
     fi
     a2ensite mb-wp >/dev/null 2>&1
+
     if ! out=$(apachectl configtest 2>&1); then
         err "Apache configtest failed:"; printf '%s\n' "$out"; return 1
     fi
-    if [ "$action" = reload ]; then
-        apachectl graceful >/dev/null 2>&1 || true
-    elif ! out=$(apachectl restart 2>&1); then
-        warn "Apache restart failed, trying graceful:"; printf '%s\n' "$out"
-        apachectl graceful >/dev/null 2>&1 || true
+    # Без restart: он гонится со старым мастером за :80 (EADDRINUSE).
+    # graceful — если Apache работает (и перечитывает новый Listen),
+    # иначе старт с ретраями, пока старый процесс отдаёт порт.
+    for i in 1 2 3; do
+        if apache_running; then
+            out=$(apachectl graceful 2>&1) && break
+            warn "Apache graceful failed (attempt $i): $out"
+        else
+            out=$(apachectl start 2>&1) && break
+            warn "Apache start failed (attempt $i), port may still be releasing: $out"
+        fi
+        sleep 2
+    done
+    if ! apache_running; then
+        err "Apache is NOT running after apply. Diagnostics:"
+        apachectl start 2>&1 | head -5
+        return 1
     fi
 }
 
@@ -424,7 +438,7 @@ do_reload_ssl() {
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
     [ "${WP_MODE:-name}" = name ] || return 0
     [ -s "$SSL_DIR/fullchain.pem" ] || return 0
-    wp_apache_apply name 1 reload
+    wp_apache_apply name 1
     wp_set_urls "https://$WP_DOMAIN"
     log "SSL reloaded, WP URLs -> https://$WP_DOMAIN"
 }
@@ -480,7 +494,7 @@ main() {
 
     local cert=0
     [ "$MODE" = name ] && [ -s "$SSL_DIR/fullchain.pem" ] && cert=1
-    wp_apache_apply "$MODE" "$cert" boot || warn "Apache vhost apply had errors"
+    wp_apache_apply "$MODE" "$cert" || warn "Apache vhost apply had errors"
 
     local image_hash applied_hash
     image_hash=$(cat "$WP_INSTALLERS/BUNDLE_HASH")
@@ -516,7 +530,7 @@ WP_DOMAIN='${WP_DOMAIN:-}'
 WP_MODE='$MODE'
 EOF
     if [ "$MODE" = port ]; then
-        log "WordPress ready (PORT mode): $BASE  (только служебная сеть, 8080 не публикуется)."
+        log "WordPress ready (PORT mode): $BASE  (service network only, 8080 not published)."
     else
         log "WordPress ready (NAME mode): $BASE  admin-net: $REQ_IP."
     fi
