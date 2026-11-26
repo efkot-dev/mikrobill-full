@@ -1,47 +1,34 @@
 #!/bin/bash
-# If a newer copy of this script lies on the mounted storage, the baked-in
-# /entrypoint.sh hands control over to it. Guard prevents a self-exec loop.
+
+# Если этот файл лежит на примонтированном диске, встроенный entrypoint
+# передаст ему управление. Эта защита предотвращает повторный вход в себя.
 if [ -f /mikrobill-data/entrypoint.sh ] && [ "${MB_ENTRYPOINT_EXTERNAL:-0}" != "1" ]; then
     echo "External entrypoint.sh found on mounted storage - using it"
     export MB_ENTRYPOINT_EXTERNAL=1
     exec bash /mikrobill-data/entrypoint.sh
 fi
+
 set -u
 
-# --- Logging: strict one-time tee (prevents duplicate lines) ---
+# --- Логирование ---
 if [ "${MB_LOG_SET:-0}" != "1" ]; then
     export MB_LOG_SET=1
+    mkdir -p /mikrobill-data
     exec > >(tee -a "/mikrobill-data/entrypoint.log") 2>&1
 fi
 
 echo "=== Entrypoint started at $(date) ==="
 
-# --- systemctl shim: container has no systemd, but installer calls it ---
-if [ ! -x /usr/local/bin/systemctl ]; then
-    printf '#!/bin/sh\n# container shim: no systemd inside\nexit 0\n' > /usr/local/bin/systemctl
-    chmod +x /usr/local/bin/systemctl
-fi
+# --- Конфигурация ---
+CONFDIR="${MB_CONFDIR:-data}"
 
-# RouterOS may leave loopback down inside containers
-if ! ip link show lo 2>/dev/null | grep -q "UP"; then
-    ip addr add 127.0.0.1/8 dev lo 2>/dev/null || true
-    ip link set lo up 2>/dev/null || true
-    echo "loopback interface brought up"
-fi
-
-# --- Single mount point: spread it over the standard paths ---
-if [ -d "/mikrobill-data" ]; then
-    echo "External storage detected. Creating symlinks..."
-    mkdir -p /mikrobill-data/mysql /mikrobill-data/data /mikrobill-data/web
-    for target in /var/lib/mysql /var/MikroBILL /var/www/html; do
-        if [ -d "$target" ] && [ ! -L "$target" ]; then
-            rm -rf "$target"
-        fi
-    done
-    ln -sfn /mikrobill-data/mysql /var/lib/mysql
-    ln -sfn /mikrobill-data/data /var/MikroBILL
-    ln -sfn /mikrobill-data/web /var/www/html
-fi
+# confdir должен быть простым именем каталога, не абсолютным путём
+case "$CONFDIR" in
+    /*|*..*)
+        echo "FATAL: MB_CONFDIR must be a simple directory name, got: $CONFDIR"
+        exit 1
+        ;;
+esac
 
 DB_NAME=${DB_NAME:-mikrobill}
 DB_USER=${DB_USER:-mikrobill}
@@ -53,45 +40,110 @@ INSTALL_DIR=/opt/mikrobill-installer
 
 mkdir -p "$SECRET_DIR" "$WEB_DIR" /var/run/mysqld
 
-# Migration from the old secrets location (<mount>/data/secrets)
-for f in db_password admin_password; do
-    if [ ! -s "$SECRET_DIR/$f" ] && [ -f /var/MikroBILL/secrets/$f ]; then
-        cp /var/MikroBILL/secrets/$f "$SECRET_DIR/$f"
+# --- Проверка внешнего тома ---
+is_mounted() {
+    mountpoint -q "$1" 2>/dev/null && return 0
+    awk -v d="$1" '$2 == d {found=1} END {exit !found}' /proc/mounts 2>/dev/null
+}
+
+if ! is_mounted /mikrobill-data; then
+    echo "WARNING: /mikrobill-data is not a mount point. Data may not survive container recreation."
+fi
+
+# --- Только bind mount, без симлинков ---
+bind_dir() {
+    local src="$1"
+    local dst="$2"
+
+    if [ -L "$dst" ]; then
+        echo "Removing symlink: $dst"
+        rm -f "$dst"
     fi
+
+    mkdir -p "$src" "$dst"
+
+    if is_mounted "$dst"; then
+        echo "Already mounted: $dst"
+        return 0
+    fi
+
+    if ! mount --bind "$src" "$dst"; then
+        echo "FATAL: cannot bind mount $src -> $dst"
+        exit 1
+    fi
+
+    echo "Bind mounted: $src -> $dst"
+}
+
+# --- Старые whole-mounts /var/MikroBILL больше не используются ---
+if is_mounted /var/MikroBILL; then
+    echo "Old mount detected on /var/MikroBILL, unmounting it"
+    umount -R /var/MikroBILL 2>/dev/null || \
+    umount /var/MikroBILL 2>/dev/null || \
+    umount -l /var/MikroBILL 2>/dev/null || true
+fi
+
+# Убираем возможные старые симлинки и создаём реальные каталоги
+for p in /var/lib/mysql /var/www/html /var/MikroBILL; do
+    if [ -L "$p" ]; then
+        echo "Removing symlink: $p"
+        rm -f "$p"
+    fi
+    mkdir -p "$p"
 done
+
+# --- Внешние данные ---
+bind_dir /mikrobill-data/mysql                 /var/lib/mysql
+bind_dir /mikrobill-data/web                   /var/www/html
+bind_dir /mikrobill-data/data                  "/var/MikroBILL/${CONFDIR}"
+bind_dir /mikrobill-data/data/cert             /var/MikroBILL/cert
 
 chown -R mysql:mysql /var/run/mysqld /var/lib/mysql 2>/dev/null || true
 chown -R www-data:www-data "$WEB_DIR" 2>/dev/null || true
 
-# --- DB password (env or auto-generate into the mounted secrets dir) ---
+# --- Миграция старых секретов из прежней структуры данных ---
+for f in db_password admin_password; do
+    if [ ! -s "$SECRET_DIR/$f" ] && [ -f "/mikrobill-data/data/secrets/$f" ]; then
+        cp "/mikrobill-data/data/secrets/$f" "$SECRET_DIR/$f"
+    fi
+done
+
+# --- Пароль БД ---
 if [ -n "${DB_PASSWORD:-}" ]; then
     printf '%s' "$DB_PASSWORD" > "$SECRET_DIR/db_password"
 fi
+
 if [ ! -s "$SECRET_DIR/db_password" ]; then
     openssl rand -hex 16 > "$SECRET_DIR/db_password"
 fi
+
 DB_PASSWORD=$(cat "$SECRET_DIR/db_password")
 chmod 600 "$SECRET_DIR/db_password"
 
-# --- Admin password (env or auto-generate) ---
+# --- Пароль админа ---
 if [ -n "${ADMIN_PASSWORD:-}" ]; then
     printf '%s' "$ADMIN_PASSWORD" > "$SECRET_DIR/admin_password"
 fi
+
 if [ ! -s "$SECRET_DIR/admin_password" ]; then
     openssl rand -hex 12 > "$SECRET_DIR/admin_password"
 fi
+
 ADMIN_PASSWORD=$(cat "$SECRET_DIR/admin_password")
 chmod 600 "$SECRET_DIR/admin_password"
 
 echo "DB password file: $SECRET_DIR/db_password"
 echo "Admin password file: $SECRET_DIR/admin_password"
 
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() {
+    printf '%s' "$1" | sed "s/'/''/g"
+}
+
 DB_USER_SQL=$(sql_escape "$DB_USER")
 DB_PASS_SQL=$(sql_escape "$DB_PASSWORD")
 DB_NAME_SQL=$(sql_escape "$DB_NAME")
 
-# --- MariaDB config: bind to all interfaces, skip log-bin, skip name resolve ---
+# --- MariaDB config ---
 CNF=/etc/mysql/mariadb.conf.d/50-server.cnf
 if [ -f "$CNF" ] && ! grep -q '^skip-name-resolve' "$CNF"; then
     sed -i 's/^bind-address\s*=.*/bind-address = 0.0.0.0/' "$CNF"
@@ -116,29 +168,23 @@ for i in $(seq 1 30); do
 done
 
 mysql -uroot <<SQL || true
--- Очистка анонимных пользователей во избежание конфликтов прав
 DELETE FROM mysql.user WHERE user = '';
 DELETE FROM mysql.user WHERE user = 'PUBLIC';
 DROP DATABASE IF EXISTS test;
-DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+DELETE FROM mysql.db WHERE Db='test' OR Db='test_%';
 
-
--- Создание базы данных
 CREATE DATABASE IF NOT EXISTS ${DB_NAME_SQL} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- Создание и обновление прав для сетевого доступа (%)
 CREATE USER IF NOT EXISTS '${DB_USER_SQL}'@'%' IDENTIFIED BY '${DB_PASS_SQL}';
 ALTER USER '${DB_USER_SQL}'@'%' IDENTIFIED BY '${DB_PASS_SQL}';
 GRANT ALL PRIVILEGES ON ${DB_NAME_SQL}.* TO '${DB_USER_SQL}'@'%';
 REVOKE FILE ON *.* FROM '${DB_USER_SQL}'@'%';
 
--- Создание и обновление прав для локального сокета (localhost)
 CREATE USER IF NOT EXISTS '${DB_USER_SQL}'@'localhost' IDENTIFIED BY '${DB_PASS_SQL}';
 ALTER USER '${DB_USER_SQL}'@'localhost' IDENTIFIED BY '${DB_PASS_SQL}';
 GRANT ALL PRIVILEGES ON ${DB_NAME_SQL}.* TO '${DB_USER_SQL}'@'localhost';
 REVOKE FILE ON *.* FROM '${DB_USER_SQL}'@'localhost';
 
--- Создание и обновление прав для локального IP (127.0.0.1)
 CREATE USER IF NOT EXISTS '${DB_USER_SQL}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS_SQL}';
 ALTER USER '${DB_USER_SQL}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS_SQL}';
 GRANT ALL PRIVILEGES ON ${DB_NAME_SQL}.* TO '${DB_USER_SQL}'@'127.0.0.1';
@@ -151,17 +197,17 @@ GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
 
-# --- Auto-repair crashed tables (MyISAM tables can crash on unclean shutdown) ---
 echo "Checking and repairing database tables..."
 mysqlcheck -uroot --auto-repair --all-databases 2>/dev/null || true
 
-# --- Apache (web + ACME HTTP-01) ---
+# --- Apache ---
 apachectl start >/dev/null 2>&1
 
-# --- Optional WordPress business-card site (ENABLE_WP=1) ---
+# --- Optional WordPress ---
 if [ "${ENABLE_WP:-0}" = "1" ]; then
     WP_SETUP=/opt/wp-setup.sh
     [ -f /mikrobill-data/wp-setup.sh ] && WP_SETUP=/mikrobill-data/wp-setup.sh
+
     if [ -f "$WP_SETUP" ]; then
         bash "$WP_SETUP" || echo "WARNING: WordPress setup failed; MikroBILL continues."
     else
@@ -169,21 +215,36 @@ if [ "${ENABLE_WP:-0}" = "1" ]; then
     fi
 fi
 
-# --- Version selection: stable (default) or beta ---
+# --- Канал версии ---
 MB_VERSION="${MB_VERSION:-stable}"
 
-# --- Install flag: both artifacts live on the mounted storage, so they survive
-# container restarts and recreates. While both exist we never touch INSTALL_DIR.
-MB_INSTALLED=0
-if [ -f /var/MikroBILL/MikroBILL.xml ] && [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
-    MB_INSTALLED=1
+# Сохраняем/восстанавливаем канал
+if [ -f /mikrobill-data/data/mb_channel ] && [ ! -f /var/MikroBILL/mb_channel ]; then
+    cp /mikrobill-data/data/mb_channel /var/MikroBILL/mb_channel 2>/dev/null || true
 fi
 
-# --- Installer preparation: only when install is missing or broken ---
-if [ "$MB_INSTALLED" != "1" ]; then
-    echo "First run (or broken install) - selected MikroBILL version: $MB_VERSION"
+INSTALLED_CHANNEL=$(cat /var/MikroBILL/mb_channel 2>/dev/null || echo "unknown")
+
+# --- Нужна ли установка/восстановление ---
+NEED_INSTALL=0
+
+if [ ! -f /var/MikroBILL/bin/MikroBILL.dll ]; then
+    echo "MikroBILL.dll is missing in /var/MikroBILL/bin"
+    NEED_INSTALL=1
+fi
+
+if [ ! -f "/var/MikroBILL/${CONFDIR}/MikroBILL.xml" ]; then
+    echo "MikroBILL.xml is missing in /var/MikroBILL/${CONFDIR}"
+    NEED_INSTALL=1
+fi
+
+# --- Подготовка установщика ---
+if [ "$NEED_INSTALL" = "1" ]; then
+    echo "Install/repair required. Selected MikroBILL version: $MB_VERSION, confdir: $CONFDIR"
+
     if [ "$MB_VERSION" = "beta" ]; then
         echo "Preparing beta installer..."
+
         if [ -f /opt/mikrobill-beta.zip ]; then
             echo "Unpacking beta installer from image..."
             rm -rf "$INSTALL_DIR"
@@ -192,6 +253,7 @@ if [ "$MB_INSTALLED" != "1" ]; then
         else
             echo "Beta archive not found in image - downloading fresh copy..."
             mkdir -p "$INSTALL_DIR"
+
             if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/beta; then
                 unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
             else
@@ -200,10 +262,11 @@ if [ "$MB_INSTALLED" != "1" ]; then
         fi
     else
         echo "Preparing stable installer..."
-        # --- Installer self-heal: image may lack it ---
+
         if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
             echo "Installer not found in image - downloading fresh copy..."
             mkdir -p "$INSTALL_DIR"
+
             if wget --no-check-certificate -O /tmp/MikroBILL.zip https://mikro-bill.com/downloads/stable; then
                 unzip -o /tmp/MikroBILL.zip -d "$INSTALL_DIR" && rm -f /tmp/MikroBILL.zip
             else
@@ -212,33 +275,34 @@ if [ "$MB_INSTALLED" != "1" ]; then
         fi
     fi
 else
-    INSTALLED_CHANNEL=$(cat /var/MikroBILL/mb_channel 2>/dev/null || echo "unknown")
-    echo "MikroBILL already installed (channel: $INSTALLED_CHANNEL) - installer preparation skipped"
+    echo "MikroBILL already installed (channel: $INSTALLED_CHANNEL, confdir: $CONFDIR)"
+
     if [ "$INSTALLED_CHANNEL" != "unknown" ] && [ "$INSTALLED_CHANNEL" != "$MB_VERSION" ]; then
-        echo "NOTE: MB_VERSION=$MB_VERSION differs from installed channel; channel applies only to a fresh install (wipe data dir to switch)"
+        echo "NOTE: MB_VERSION=$MB_VERSION differs from installed channel; channel applies only to a fresh install"
     fi
 fi
 
-# --- Pre-create directories that installer chmod's before creating ---
-mkdir -p "$WEB_DIR"/payin "$WEB_DIR"/actionin "$WEB_DIR"/news "$WEB_DIR"/tvin
+# --- Silent install / repair ---
+if [ "$NEED_INSTALL" = "1" ]; then
+    if [ ! -f "$INSTALL_DIR/MikroBILL.dll" ]; then
+        echo "FATAL: installer MikroBILL.dll not found"
+        exit 1
+    fi
 
-# --- Silent install on first run ---
-if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
-    echo "First run: installing MikroBILL ($MB_VERSION)..."
+    echo "First run or repair: installing MikroBILL ($MB_VERSION) with confdir=${CONFDIR}..."
 
-    # Determine container IP for web_url (from ENV or auto-detect)
     CONTAINER_IP="${CONTAINER_IP:-}"
+
     if [ -z "$CONTAINER_IP" ]; then
-        # Auto-detect: get IP of eth0 (veth interface inside container)
         CONTAINER_IP=$(ip -4 addr show eth0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+
         if [ -z "$CONTAINER_IP" ]; then
-            # Fallback: use hostname -i
             CONTAINER_IP=$(hostname -i 2>/dev/null | awk '{print $1}')
         fi
     fi
 
-    # Build web_url (allow override via ENV)
     WEB_URL="${WEB_URL:-http://${CONTAINER_IP}}"
+
     echo "Container IP: $CONTAINER_IP"
     echo "Web URL: $WEB_URL"
 
@@ -253,40 +317,59 @@ if [ ! -f /var/MikroBILL/MikroBILL.xml ]; then
         --arg admin_login "$ADMIN_LOGIN" \
         --arg admin_pass "$ADMIN_PASSWORD" \
         '{
-            web_path: $web_path, web_url: $web_url, check_db: "0", language: "ru",
-            db_ip: $db_ip, db_port: $db_port, db_name: $db_name,
-            db_login: $db_login, db_pass: $db_pass,
-            admin_login: $admin_login, admin_pass: $admin_pass,
-            admin_allowed_ip: "", lic_accept: "1"
+            web_path: $web_path,
+            web_url: $web_url,
+            check_db: "0",
+            language: "ru",
+            db_ip: $db_ip,
+            db_port: $db_port,
+            db_name: $db_name,
+            db_login: $db_login,
+            db_pass: $db_pass,
+            admin_login: $admin_login,
+            admin_pass: $admin_pass,
+            admin_allowed_ip: "",
+            lic_accept: "1"
         }')
 
     INSTALL_RC=0
-    dotnet "$INSTALL_DIR/MikroBILL.dll" /SILENT_INSTALL="$INSTALL_JSON" || INSTALL_RC=$?
-    if [ -f /var/MikroBILL/MikroBILL.xml ] && [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
-        echo "Silent install finished (rc=$INSTALL_RC), artifacts present - continuing"
+
+    dotnet "$INSTALL_DIR/MikroBILL.dll" /SILENT_INSTALL="$INSTALL_JSON" /confdir="$CONFDIR" || INSTALL_RC=$?
+
+    echo "Silent install finished with rc=$INSTALL_RC"
+
+    if [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
         printf '%s' "$MB_VERSION" > /var/MikroBILL/mb_channel
+        cp /var/MikroBILL/mb_channel /mikrobill-data/data/mb_channel 2>/dev/null || true
     else
-        echo "MikroBILL silent install FAILED (rc=$INSTALL_RC), artifacts missing"
+        echo "FATAL: MikroBILL silent install did not produce /var/MikroBILL/bin/MikroBILL.dll"
+        exit 1
     fi
+
     sleep 5
 fi
 
-# --- Web files & permissions (official instruction) ---
+# --- Web-каталоги ---
+mkdir -p "$WEB_DIR"/payin "$WEB_DIR"/actionin "$WEB_DIR"/news "$WEB_DIR"/tvin
+
 if [ -d /var/MikroBILL/bin/web ] && [ ! -f "${WEB_DIR}/web.ver" ]; then
     cp -rT /var/MikroBILL/bin/web "${WEB_DIR}" || true
 fi
+
 for d in payin actionin news tvin; do
     mkdir -p "${WEB_DIR}/$d"
     chmod -R a=rwx "${WEB_DIR}/$d" 2>/dev/null || true
 done
+
 chown -R www-data:www-data "${WEB_DIR}" 2>/dev/null || true
 
-# --- Start core ---
+# --- Запуск ядра ---
+cd /var/MikroBILL || true
+
 if [ -f /var/MikroBILL/bin/MikroBILL.dll ]; then
-    exec dotnet /var/MikroBILL/bin/MikroBILL.dll /SERVER
-elif [ -f "$INSTALL_DIR/MikroBILL.dll" ] && [ -f /var/MikroBILL/MikroBILL.xml ]; then
-    exec dotnet "$INSTALL_DIR/MikroBILL.dll" /SERVER
+    echo "Starting: dotnet /var/MikroBILL/bin/MikroBILL.dll /SERVER /confdir=${CONFDIR}"
+    exec dotnet /var/MikroBILL/bin/MikroBILL.dll /SERVER /confdir="$CONFDIR"
 else
-    echo "FATAL: installed core not found and silent install did not produce it"
+    echo "FATAL: installed core not found"
     exit 1
 fi
