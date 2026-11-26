@@ -83,8 +83,8 @@ COPY modules/ /opt/mikrobill-modules/
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-COPY wp-setup.sh /opt/wp-setup.sh
-RUN chmod +x /opt/wp-setup.sh
+#COPY wp-setup.sh /opt/wp-setup.sh
+#RUN chmod +x /opt/wp-setup.sh
 
 EXPOSE 80 443 7402 3306
 
