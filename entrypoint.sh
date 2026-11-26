@@ -160,10 +160,12 @@ apachectl start >/dev/null 2>&1
 
 # --- Optional WordPress business-card site (ENABLE_WP=1) ---
 if [ "${ENABLE_WP:-0}" = "1" ]; then
-    if [ -f /opt/wp-setup.sh ]; then
-        bash /opt/wp-setup.sh || echo "WARNING: WordPress setup failed; MikroBILL continues (see [wp] log above)."
+    WP_SETUP=/opt/wp-setup.sh
+    [ -f /mikrobill-data/wp-setup.sh ] && WP_SETUP=/mikrobill-data/wp-setup.sh
+    if [ -f "$WP_SETUP" ]; then
+        bash "$WP_SETUP" || echo "WARNING: WordPress setup failed; MikroBILL continues."
     else
-        echo "WARNING: ENABLE_WP=1 but /opt/wp-setup.sh missing in image."
+        echo "WARNING: ENABLE_WP=1 but wp-setup.sh missing."
     fi
 fi
 
