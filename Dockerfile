@@ -78,6 +78,8 @@ RUN curl -fsSL -o /usr/local/bin/wp \
     echo "ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c  /usr/local/bin/wp" | sha256sum -c - && \
     chmod +x /usr/local/bin/wp
 
+COPY modules/ /opt/mikrobill-modules/
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
