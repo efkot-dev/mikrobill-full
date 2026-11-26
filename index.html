@@ -115,6 +115,20 @@ h2{font-size:15px;margin:0 0 8px}
   </div>
  </div>
 
+ <!-- [NEW] WordPress-сайт (optional) -->
+ <div class="fblock">
+  <div class="fbtitle" data-i18n="b6"></div>
+  <label class="chk"><input type="checkbox" id="wpen"><span data-i18n="wpEnable"></span></label>
+  <div id="wpFields" style="display:none;margin-top:10px">
+   <label class="chk"><input type="checkbox" id="wpport"><span data-i18n="wpPort"></span></label>
+   <div class="grid" style="margin-top:10px">
+    <label id="lbl-wpdomain"><span data-i18n="wpDomain"></span><input id="wpdomain" placeholder="operator.tld" autocomplete="off"></label>
+    <label><span data-i18n="wpNets"></span><input id="wpnets" placeholder="10.0.10.0/24,192.168.1.0/24" autocomplete="off"></label>
+   </div>
+   <p class="hint" style="margin-top:8px" data-i18n="noteWp"></p>
+  </div>
+ </div>
+
  <p class="hint" style="margin-top:12px" data-i18n="noteImage"></p>
 </div>
 
@@ -231,7 +245,16 @@ ru:{
  how:'Как применить: скачайте setup.rsc, загрузите в Files роутера (WinBox/FTP) и выполните /import file=setup.rsc. Логи: /log print follow where topics~"container". Порты 80/443 не должны быть заняты сервисом www RouterOS: /ip service set www disabled=yes.',
  eStorage:'Выберите хранилище контейнера.', eWhiteIp:'При включённом NAT укажите белый IP.',
  eIP:'Некорректный IPv4 (IP контейнера / шлюз / белый IP).', eMask:'Маска: число 1-32.',
- eName:'Имя/папка: латиница, цифры, - и _ (1-30).', eBridge:'Укажите имя bridge.'
+ eName:'Имя/папка: латиница, цифры, - и _ (1-30).', eBridge:'Укажите имя bridge.',
+ // [NEW] WordPress
+ b6:'WordPress-сайт (необязательно)',
+ wpEnable:'Включить WordPress',
+ wpPort:'Без домена — доступ по IP:8080 (только служебная сеть)',
+ wpDomain:'Основной домен оператора (сайт будет www.<домен>)',
+ wpNets:'Доп. сети для админки WP (CIDR, через запятую, необязательно)',
+ noteWp:'С доменом: DNS A для www/apex на белый IP, NAT 80/443, порт 80 свободен от www RouterOS. Без домена: сайт на http://IP-контейнера:8080, наружу не публикуется. Обновления WP — только пересборкой образа.',
+ eWpDomain:'WordPress: укажите корректный домен, напр. operator.tld',
+ eWpNets:'WordPress: доп. сети должны быть CIDR, напр. 10.0.0.0/24'
 },
 en:{
  title:'MikroBILL — RouterOS 7 script generator',
@@ -267,7 +290,16 @@ en:{
  how:'How to apply: download setup.rsc, upload it to router Files (WinBox/FTP) and run /import file=setup.rsc. Logs: /log print follow where topics~"container". Ports 80/443 must not be taken by the RouterOS www service: /ip service set www disabled=yes.',
  eStorage:'Select container storage.', eWhiteIp:'With NAT enabled, provide the white IP.',
  eIP:'Invalid IPv4 (container IP / gateway / white IP).', eMask:'Mask: number 1-32.',
- eName:'Name/folder: letters, digits, - and _ (1-30).', eBridge:'Provide the bridge name.'
+ eName:'Name/folder: letters, digits, - and _ (1-30).', eBridge:'Provide the bridge name.',
+ // [NEW] WordPress
+ b6:'WordPress site (optional)',
+ wpEnable:'Enable WordPress',
+ wpPort:'No domain - access via IP:8080 (service network only)',
+ wpDomain:'Operator main domain (site will be www.<domain>)',
+ wpNets:'Extra WP admin networks (CIDR, comma-separated, optional)',
+ noteWp:'With domain: DNS A for www/apex to the white IP, NAT 80/443, port 80 free from RouterOS www. Without domain: site at http://container-IP:8080, not published. WP updates only via image rebuild.',
+ eWpDomain:'WordPress: provide a valid domain, e.g. operator.tld',
+ eWpNets:'WordPress: extra networks must be CIDR, e.g. 10.0.0.0/24'
 }};
 
 // БЛОК 5 — хелперы и генераторы
@@ -287,6 +319,24 @@ function rsc(s){return String(s).replace(/\r?\n/g,' ').replace(/"/g,'\\"')}
 function crlf(s){return String(s).replace(/\r?\n/g,'\r\n')}
 function isIP(s){var m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);if(!m)return false;for(var i=1;i<=4;i++){if(Number(m[i])>255)return false}return true}
 function isName(s){return /^[a-zA-Z0-9_-]{1,30}$/.test(s)}
+// [NEW] WordPress: валидация домена и CIDR-сетей
+function isDomain(s){
+  if(!s) return false;
+  var p=s.split('.');
+  if(p.length<2) return false;
+  for(var i=0;i<p.length;i++){ if(!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(p[i])) return false; }
+  if(/^\d+$/.test(p[p.length-1])) return false;
+  return true;
+}
+function isNets(s){
+  var a=s.split(',');
+  for(var i=0;i<a.length;i++){
+    var m=/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(a[i].trim());
+    if(!m || !isIP(m[1])) return false;
+    var pl=Number(m[2]); if(pl<8||pl>32) return false;
+  }
+  return true;
+}
 function val(id){return document.getElementById(id).value.trim()}
 function cfg(){
   var sel=val('storage');
@@ -299,7 +349,11 @@ function cfg(){
           admin:document.getElementById('adminpass').value,
           nat:document.getElementById('nat').checked,
           boot:document.getElementById('boot').checked,
-          mver:val('mver')};
+          mver:val('mver'),
+          wpen:document.getElementById('wpen').checked,
+          wpport:document.getElementById('wpport').checked,
+          wpdomain:val('wpdomain'),
+          wpnets:val('wpnets')};
 }
 function validate(c){
   var e=[];
@@ -310,6 +364,10 @@ function validate(c){
   if(!isIP(c.ip)||!isIP(c.gw)) e.push(t('eIP'));
   if(!/^\d{1,2}$/.test(c.mask)||Number(c.mask)<1||Number(c.mask)>32) e.push(t('eMask'));
   if(c.nat && !isIP(c.whiteIp)) e.push(t('eWhiteIp'));
+  if(c.wpen){
+    if(!c.wpport && !isDomain(c.wpdomain.toLowerCase().replace(/^www\./,''))) e.push(t('eWpDomain'));
+    if(c.wpnets && !isNets(c.wpnets)) e.push(t('eWpNets'));
+  }
   return e;
 }
 function updateUi(){
@@ -319,6 +377,10 @@ function updateUi(){
       document.getElementById('usebridge').checked ? '' : 'none';
   document.getElementById('whiteip').parentElement.style.display =
       document.getElementById('nat').checked ? '' : 'none';
+  document.getElementById('wpFields').style.display =
+      document.getElementById('wpen').checked ? '' : 'none';
+  document.getElementById('lbl-wpdomain').style.display =
+      (document.getElementById('wpen').checked && !document.getElementById('wpport').checked) ? '' : 'none';
 }
 
 function buildSetup(c){
@@ -379,8 +441,9 @@ function buildSetup(c){
   L.push(':local freeB 0');
   L.push(':do { :set freeB [/disk/get [find where mount-point=$disk] free] } on-error={}');
   L.push(':if ($freeB = 0) do={ :do { :set freeB [/system/resource/get free-hdd-space] } on-error={} }');
-  L.push(':if ($freeB > 0 and $freeB < 1073741824) do={');
-  L.push('  :log warning (" ! Only " . ($freeB / 1048576) . " MB free - image+DB need 1 GB+")');
+  var needB=c.wpen?2147483648:1073741824, needGB=c.wpen?'2 GB':'1 GB';
+  L.push(':if ($freeB > 0 and $freeB < '+needB+') do={');
+  L.push('  :log warning (" ! Only " . ($freeB / 1048576) . " MB free - need '+needGB+'+")');
   L.push('  :set problems ($problems + 1)');
   L.push('} else={ :if ($freeB > 0) do={ :log info ("ok: " . ($freeB / 1048576) . " MB free") } }');
   if(c.useBridge){
@@ -435,7 +498,18 @@ function buildSetup(c){
   L.push('  /container/envs/add list=$containerName key="MB_VERSION" value="'+c.mver+'"');
   if(c.db) L.push('  /container/envs/add list=$containerName key="DB_PASSWORD" value="'+rsc(c.db)+'"');
   if(c.admin) L.push('  /container/envs/add list=$containerName key="ADMIN_PASSWORD" value="'+rsc(c.admin)+'"');
+  if(c.wpen){
+    L.push('  /container/envs/add list=$containerName key="ENABLE_WP" value="1"');
+    L.push('  /container/envs/add list=$containerName key="CONTAINER_IP" value="'+c.ip+'"');
+    if(!c.wpport){
+      var wd=c.wpdomain.toLowerCase().replace(/^www\./,'');
+      L.push('  /container/envs/add list=$containerName key="WP_DOMAIN" value="www.'+wd+'"');
+    }
+    if(c.wpnets) L.push('  /container/envs/add list=$containerName key="WP_ADMIN_NETWORKS" value="'+rsc(c.wpnets)+'"');
+  }
   L.push('} on-error={}');
+  if(c.wpen && !c.wpport) L.push('# WP: DNS A records for www/apex must point to the white IP; NAT 80/443 required; port 80 free from RouterOS www');
+  if(c.wpen && c.wpport) L.push('# WP port mode: site at http://'+c.ip+':8080 (service network only, do NOT publish 8080 via NAT)');
   if(!c.db) L.push('# DB password left empty: entrypoint.sh auto-generates it into /mikrobill-data/secrets/db_password');
   if(!c.admin) L.push('# Admin password left empty: auto-generated into /mikrobill-data/secrets/admin_password (login: Admin)');
   L.push('# Container');
@@ -538,6 +612,18 @@ function buildDiag(c){
   L.push(':log info "NEVER use direction=write on a live disk."');
   L.push('');
   
+  if(c.wpen){
+    L.push(':log info "--- WordPress checks ---"');
+    if(!c.wpport){
+      var wd=c.wpdomain.toLowerCase().replace(/^www\./,'');
+      L.push(':do { :resolve "www.'+wd+'"; :log info "ok: www.'+wd+' resolves" } on-error={ :log warning " ! www.'+wd+' does not resolve - check DNS A record"; :set problems ($problems + 1) }');
+    } else {
+      L.push(':log info "WP port mode: site at http://'+c.ip+':8080 (service network only)"');
+    }
+    L.push(':local wpFree 0');
+    L.push(':do { :set wpFree [/disk/get [find where mount-point=$disk] free] } on-error={}');
+    L.push(':if ($wpFree > 0 and $wpFree < 2147483648) do={ :log warning " ! WordPress needs 2 GB+ free"; :set problems ($problems + 1) } else={ :if ($wpFree > 0) do={ :log info "ok: free space for WordPress" } }');
+  }
   L.push(':if ($problems = 0) do={ :log info "=== Router is ready ===" } else={ :log warning ("=== " . $problems . " thing(s) to fix first ===") }');
   return L.join('\n');
 }
@@ -597,16 +683,16 @@ async function publishGist(){
       body:JSON.stringify({files:{'bootstrap.rsc':{content:boot}}})
     });
     if(!resp2.ok){ throw new Error('PATCH '+resp2.status); }
-_currentGistId = gist.id;
-document.getElementById('gistDelBtn').style.display = '';
+    _currentGistId = gist.id;
+    document.getElementById('gistDelBtn').style.display = '';
     document.getElementById('pre-bootstrap').textContent=boot;
-var cmd='/tool/fetch url="'+base+'/bootstrap.rsc" dst-path=bootstrap.rsc mode=https; '
-       +'/import file-name=bootstrap.rsc; '
-       +'/file/remove [find where name="bootstrap.rsc"]';
-var cmdBox=document.getElementById('gistCmd');
-cmdBox.style.display='';
-cmdBox.textContent=cmd+'\n\n# '+gist.html_url;
-document.getElementById('gistCmdBtns').style.display='';  // ← добавить эту строку
+    var cmd='/tool/fetch url="'+base+'/bootstrap.rsc" dst-path=bootstrap.rsc mode=https; '
+           +'/import file-name=bootstrap.rsc; '
+           +'/file/remove [find where name="bootstrap.rsc"]';
+    var cmdBox=document.getElementById('gistCmd');
+    cmdBox.style.display='';
+    cmdBox.textContent=cmd+'\n\n# '+gist.html_url;
+    document.getElementById('gistCmdBtns').style.display='';
   }catch(err){
     alert(t('eGistFail')+err.message);
   }finally{
@@ -678,7 +764,7 @@ async function deleteGist(){
     
     _currentGistId = null;
     document.getElementById('gistCmd').style.display = 'none';
-   document.getElementById('gistCmdBtns').style.display = 'none';
+    document.getElementById('gistCmdBtns').style.display = 'none';
     document.getElementById('gistDelBtn').style.display = 'none';
     
     var msgBox = document.getElementById('gistMsg');
@@ -727,7 +813,7 @@ function render(){
       document.getElementById(id).textContent=t('phSelect');
     });
     // bootstrap сбрасываем: без скриптов он неактуален
-   _currentGistId = null;
+    _currentGistId = null;
     document.getElementById('gistDelBtn').style.display = 'none';
     document.getElementById('gistMsg').style.display = 'none';
     document.getElementById('gistCmdBtns').style.display='none';
