@@ -1,11 +1,14 @@
 #!/bin/bash
 # MikroBILL: optional WordPress-визитка. Вызывается из entrypoint.sh при ENABLE_WP=1.
-# Только WP: vhost для MikroBILL НЕ трогаем (им управляет сам MikroBILL).
-# Админка WP на том же www.domain, дашборд/вход закрыты Require ip служебной сети.
+# Только WP (vhost MikroBILL не трогаем). Оффлайн из /opt/wp-installers.
+# Режимы: WP_DOMAIN не задан -> port mode (*:8080, siteurl=http://IP:8080);
+#         WP_DOMAIN задан     -> name mode (80/443 по имени, админка Require ip).
 set -u
+# Свой лог в UTF-8: читается через cat/fetch, а не через /log микрота.
+exec > >(tee -a /mikrobill-data/wp-setup.log) 2>&1
 
 WP_INSTALLERS=/opt/wp-installers
-WP_DIR=/var/www/site                 # symlink -> /mikrobill-data/wp
+WP_DIR=/var/www/site
 WP_DATA=/mikrobill-data/wp
 SECRET_DIR=/mikrobill-data/secrets
 SSL_DIR=/mikrobill-data/ssl
@@ -13,15 +16,15 @@ ACME_HOME=/mikrobill-data/acme
 ACME_BIN=/root/.acme.sh/acme.sh
 APACHE_AVAIL=/etc/apache2/sites-available
 ENV_FILE=/mikrobill-data/wp-env.sh
+STATE_FILE="$WP_DATA/.mb-wp-state"
 export WP_CLI_DISABLE_AUTO_CHECK_UPDATE=1
 
 log()  { echo "[wp] $*"; }
 warn() { echo "[wp] WARNING: $*"; }
 err()  { echo "[wp] ERROR: $*"; }
-
 sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
 
-# ---------- Apache static blocks ----------
+# ---------- Apache shared hardening (без основного Directory) ----------
 ACME_BLOCK=$(cat <<'EOF'
     Alias /.well-known/acme-challenge/ /var/www/letsencrypt/.well-known/acme-challenge/
     <Directory /var/www/letsencrypt/.well-known/acme-challenge>
@@ -33,12 +36,6 @@ EOF
 )
 
 WP_HARDEN=$(cat <<'EOF'
-    DocumentRoot /var/www/site
-    <Directory /var/www/site>
-        Options -Indexes +FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
     <Location "/xmlrpc.php">
         Require all denied
     </Location>
@@ -60,7 +57,7 @@ WP_HARDEN=$(cat <<'EOF'
 EOF
 )
 
-# Дашборд и вход — только служебная сеть; admin-ajax/admin-post открыты (формы).
+# name mode: дашборд/вход только служебная сеть; admin-ajax/admin-post открыты (формы)
 wp_admin_restrict() {
 cat <<EOF
     <LocationMatch "^/wp-admin/(?!admin-ajax\.php|admin-post\.php)">
@@ -72,7 +69,17 @@ cat <<EOF
 EOF
 }
 
-# ---------- networks ----------
+WP_DOCROOT_BLOCK=$(cat <<'EOF'
+    DocumentRoot /var/www/site
+    <Directory /var/www/site>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+EOF
+)
+
+# ---------- network ----------
 calc_service_net() {
     local cidr="$1" ip prefix o1 o2 o3 o4 ipint mask net
     ip=${cidr%/*}; prefix=${cidr#*/}
@@ -81,6 +88,24 @@ calc_service_net() {
     mask=$(( (0xFFFFFFFF << (32-prefix)) & 0xFFFFFFFF ))
     net=$(( ipint & mask ))
     echo "$(( (net>>24)&255 )).$(( (net>>16)&255 )).$(( (net>>8)&255 )).$(( net&255 ))/$prefix"
+}
+
+detect_network() {
+    CIDR=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4; exit}')
+    [ -z "$CIDR" ] && CIDR=$(ip -4 -o addr show 2>/dev/null | awk '$2!="lo"{print $4; exit}')
+    IP_AUTO=${CIDR%/*}
+    if [ -n "$CIDR" ]; then
+        SERVICE_NET=$(calc_service_net "$CIDR")
+    elif [ -n "${CONTAINER_IP:-}" ]; then
+        SERVICE_NET=$(calc_service_net "${CONTAINER_IP}/24")
+        IP_AUTO=$CONTAINER_IP
+        warn "service net guessed from CONTAINER_IP/24: $SERVICE_NET"
+    else
+        SERVICE_NET="127.0.0.0/8"
+        warn "cannot detect service network; set WP_ADMIN_NETWORKS!"
+    fi
+    EXTRA_NETS=$(printf '%s' "${WP_ADMIN_NETWORKS:-}" | tr ',' ' ' | tr -s ' ')
+    REQ_IP="$SERVICE_NET $EXTRA_NETS"
 }
 
 # ---------- prepare ----------
@@ -100,7 +125,6 @@ wp_prepare() {
     WP_DB_NAME=${WP_DB_NAME:-wordpress}
     WP_DB_USER=${WP_DB_USER:-wpuser}
     WP_ADMIN_USER=${WP_ADMIN_USER:-operator}
-    WP_ADMIN_EMAIL=${WP_ADMIN_EMAIL:-admin@${WP_DOMAIN#www.}}
     WP_TITLE=${WP_TITLE:-Operator}
     local re='^[A-Za-z0-9_]+$'
     [[ "$WP_DB_NAME" =~ $re && "$WP_DB_USER" =~ $re ]] || { err "bad WP_DB_NAME/WP_DB_USER"; return 1; }
@@ -116,25 +140,30 @@ REVOKE FILE ON *.* FROM '${u}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 
-    case "$WP_DOMAIN" in www.*) APEX="${WP_DOMAIN#www.}";; *) APEX="";; esac
+    detect_network
+    IP=${CONTAINER_IP:-$IP_AUTO}
 
-    local cidr
-    cidr=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1)
-    if [ -n "$cidr" ]; then
-        SERVICE_NET=$(calc_service_net "$cidr")
-    elif [ -n "${CONTAINER_IP:-}" ]; then
-        SERVICE_NET=$(calc_service_net "${CONTAINER_IP}/24")
+    if [ -n "${WP_DOMAIN:-}" ]; then
+        MODE=name
+        case "$WP_DOMAIN" in www.*) APEX="${WP_DOMAIN#www.}";; *) APEX="";; esac
+        WP_ADMIN_EMAIL=${WP_ADMIN_EMAIL:-admin@${WP_DOMAIN#www.}}
+        BASE="http://$WP_DOMAIN"
+        [ -s "$SSL_DIR/fullchain.pem" ] && BASE="https://$WP_DOMAIN"
     else
-        SERVICE_NET="127.0.0.0/8"
+        MODE=port
+        APEX=""
+        WP_ADMIN_EMAIL=${WP_ADMIN_EMAIL:-admin@localhost}
+        [ -n "$IP" ] || { err "port mode needs CONTAINER_IP (cannot detect interface IP)"; return 1; }
+        BASE="http://${IP}:8080"
     fi
-    EXTRA_NETS=$(printf '%s' "${WP_ADMIN_NETWORKS:-}" | tr ',' ' ' | tr -s ' ')
-    REQ_IP="$SERVICE_NET $EXTRA_NETS"
-    log "WP admin allowed networks: $REQ_IP"
+    log "mode=$MODE base=$BASE admin-net=$REQ_IP"
 
     cat > "$ENV_FILE" <<EOF
 ENABLE_WP=1
-WP_DOMAIN='$WP_DOMAIN'
+WP_DOMAIN='${WP_DOMAIN:-}'
+WP_MODE='$MODE'
 APEX='$APEX'
+IP='$IP'
 SERVICE_NET='$SERVICE_NET'
 EXTRA_NETS='$EXTRA_NETS'
 REQ_IP='$REQ_IP'
@@ -203,8 +232,26 @@ wp_install_plugins() {
     cp -f "$WP_INSTALLERS/mu-plugins/mikrobill-guard.php" "$WP_DIR/wp-content/mu-plugins/mikrobill-guard.php"
 }
 
+wp_write_htaccess() {
+    cat > "$WP_DIR/.htaccess" <<'EOF'
+# BEGIN WordPress
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+# END WordPress
+EOF
+    chown www-data:www-data "$WP_DIR/.htaccess" 2>/dev/null || true
+    chmod 644 "$WP_DIR/.htaccess"
+}
+
 wp_first_install() {
-    log "First run: installing WordPress offline..."
+    log "First run: installing WordPress offline (base=$BASE)..."
     rm -rf /tmp/wp-core; mkdir -p /tmp/wp-core
     unzip -qo "$WP_INSTALLERS/wordpress-ru_RU.zip" -d /tmp/wp-core || { err "core unzip failed"; return 1; }
     cp -a /tmp/wp-core/wordpress/. "$WP_DIR/"
@@ -216,17 +263,18 @@ wp_first_install() {
     WPCLI config create \
         --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASS" \
         --dbhost=localhost --dbcharset=utf8mb4 --dbcollate=utf8mb4_unicode_ci \
-        --prefix="$prefix" --skip-salts --extra-php="$extra" --force || { err "config create failed"; return 1; }
+        --dbprefix="$prefix" --skip-salts --extra-php="$extra" --force || { err "config create failed"; return 1; }
 
     WPCLI core install \
-        --url="http://$WP_DOMAIN" --title="$WP_TITLE" \
+        --url="$BASE" --title="$WP_TITLE" \
         --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASS" \
         --admin_email="$WP_ADMIN_EMAIL" --skip-email || { err "core install failed"; return 1; }
 
     WPCLI language core activate ru_RU >/dev/null 2>&1 || true
     wp_install_plugins || { err "plugin install failed"; return 1; }
     wp_create_pages
-    WPCLI rewrite structure '/%postname%/' --hard >/dev/null
+    WPCLI rewrite structure '/%postname%/' >/dev/null
+    wp_write_htaccess
     wp_disable_autoupdates
     log "WordPress installed (admin user: $WP_ADMIN_USER)."
 }
@@ -236,7 +284,8 @@ wp_upgrade() {
     WPCLI core update "$WP_INSTALLERS/wordpress-ru_RU.zip" --force || { err "core update failed"; return 1; }
     WPCLI core update-db || { err "core update-db failed"; return 1; }
     wp_install_plugins || { err "plugin upgrade failed"; return 1; }
-    WPCLI rewrite flush --hard >/dev/null
+    WPCLI rewrite flush >/dev/null
+    wp_write_htaccess
     wp_disable_autoupdates
     log "WordPress upgraded offline."
 }
@@ -248,11 +297,32 @@ wp_perms() {
     [ -f "$WP_DIR/wp-config.php" ] && chmod 640 "$WP_DIR/wp-config.php"
 }
 
-# ---------- Apache vhosts (только WP) ----------
-wp_apache_http() {
-    local cert="$1" f="$APACHE_AVAIL/mb-wp.conf"
-    echo "# MikroBILL WordPress vhosts (generated by wp-setup.sh)" > "$f"
+wp_set_urls() {
+    local base="$1" cur
+    [ -f "$WP_DIR/wp-config.php" ] || return 0
+    cur=$(WPCLI option get siteurl 2>/dev/null)
+    if [ "$cur" != "$base" ]; then
+        WPCLI option update siteurl "$base" >/dev/null 2>&1 || true
+        WPCLI option update home "$base" >/dev/null 2>&1 || true
+        log "WP URLs -> $base"
+    fi
+}
 
+# ---------- Apache vhosts ----------
+wp_apache_port() {
+    cat > "$APACHE_AVAIL/mb-wp.conf" <<EOF
+# MikroBILL WordPress — PORT mode (no domain), generated by wp-setup.sh
+<VirtualHost *:8080>
+    ServerName $IP
+$WP_DOCROOT_BLOCK
+$WP_HARDEN
+</VirtualHost>
+EOF
+}
+
+wp_apache_name() {
+    local cert="$1" f="$APACHE_AVAIL/mb-wp.conf"
+    echo "# MikroBILL WordPress — NAME mode, generated by wp-setup.sh" > "$f"
     if [ "$cert" = 1 ]; then
         cat >> "$f" <<EOF
 <VirtualHost *:80>
@@ -268,15 +338,14 @@ EOF
 <VirtualHost *:80>
     ServerName $WP_DOMAIN
 $ACME_BLOCK
+$WP_DOCROOT_BLOCK
 $WP_HARDEN
 $(wp_admin_restrict)
 </VirtualHost>
 EOF
     fi
-
     if [ -n "$APEX" ]; then
-        local target="http://$WP_DOMAIN"
-        [ "$cert" = 1 ] && target="https://$WP_DOMAIN"
+        local target="http://$WP_DOMAIN"; [ "$cert" = 1 ] && target="https://$WP_DOMAIN"
         cat >> "$f" <<EOF
 <VirtualHost *:80>
     ServerName $APEX
@@ -312,6 +381,7 @@ EOF
     SSLCertificateFile $SSL_DIR/fullchain.pem
     SSLCertificateKeyFile $SSL_DIR/privkey.pem
 $ACME_BLOCK
+$WP_DOCROOT_BLOCK
 $WP_HARDEN
 $(wp_admin_restrict)
 </VirtualHost>
@@ -321,37 +391,50 @@ EOF
 }
 
 wp_apache_apply() {
-    local cert="$1"
-    wp_apache_http "$cert"
-    if [ "$cert" = 1 ]; then
-        wp_apache_ssl
-        a2ensite mb-wp-ssl >/dev/null 2>&1
-    else
+    local mode="$1" cert="$2" action="${3:-boot}" out
+    if [ "$mode" = port ]; then
+        wp_apache_port
+        grep -q '^Listen 8080' /etc/apache2/ports.conf 2>/dev/null || echo 'Listen 8080' >> /etc/apache2/ports.conf
         a2dissite mb-wp-ssl >/dev/null 2>&1 || true
         rm -f "$APACHE_AVAIL/mb-wp-ssl.conf"
+    else
+        sed -i '/^Listen 8080$/d' /etc/apache2/ports.conf 2>/dev/null || true
+        wp_apache_name "$cert"
+        if [ "$cert" = 1 ]; then
+            wp_apache_ssl
+            a2ensite mb-wp-ssl >/dev/null 2>&1
+        else
+            a2dissite mb-wp-ssl >/dev/null 2>&1 || true
+            rm -f "$APACHE_AVAIL/mb-wp-ssl.conf"
+        fi
     fi
     a2ensite mb-wp >/dev/null 2>&1
-    if apachectl configtest >/dev/null 2>&1; then
-        apachectl restart >/dev/null 2>&1 || apachectl graceful >/dev/null 2>&1
-    else
-        err "Apache configtest failed, keeping previous config"
-        apachectl configtest
-        return 1
+    if ! out=$(apachectl configtest 2>&1); then
+        err "Apache configtest failed:"; printf '%s\n' "$out"; return 1
+    fi
+    if [ "$action" = reload ]; then
+        apachectl graceful >/dev/null 2>&1 || true
+    elif ! out=$(apachectl restart 2>&1); then
+        warn "Apache restart failed, trying graceful:"; printf '%s\n' "$out"
+        apachectl graceful >/dev/null 2>&1 || true
     fi
 }
 
 do_reload_ssl() {
     [ -f "$ENV_FILE" ] && . "$ENV_FILE"
+    [ "${WP_MODE:-name}" = name ] || return 0
     [ -s "$SSL_DIR/fullchain.pem" ] || return 0
-    wp_apache_apply 1
-    if [ -f "$WP_DIR/wp-config.php" ]; then
-        WPCLI option update siteurl "https://$WP_DOMAIN" >/dev/null 2>&1 || true
-        WPCLI option update home "https://$WP_DOMAIN" >/dev/null 2>&1 || true
-    fi
-    log "SSL reloaded, WP URLs set to https://$WP_DOMAIN"
+    wp_apache_apply name 1 reload
+    wp_set_urls "https://$WP_DOMAIN"
+    log "SSL reloaded, WP URLs -> https://$WP_DOMAIN"
 }
 
 wp_acme() {
+    if [ "${WP_ACME:-1}" != "1" ]; then log "ACME skipped (WP_ACME=0)."; return 0; fi
+    case "$WP_DOMAIN" in
+        *.local|*.test|*.localhost|*.internal|*.example|*.invalid|localhost|"")
+            log "ACME skipped: non-public domain '$WP_DOMAIN'."; return 0;;
+    esac
     mkdir -p "$ACME_HOME"
     local args=(-d "$WP_DOMAIN")
     [ -n "$APEX" ] && args+=(-d "$APEX")
@@ -365,7 +448,7 @@ wp_acme() {
         do_reload_ssl
         log "ACME certificate issued/installed."
     else
-        warn "ACME issue failed (DNS/NAT not ready?). Serving HTTP for now; cron will retry."
+        warn "ACME issue failed (DNS/NAT not ready?). Serving HTTP; cron will retry."
     fi
 }
 
@@ -382,20 +465,22 @@ EOF
 
 main() {
     [ "${ENABLE_WP:-0}" = "1" ] || return 0
-    if [ -z "${WP_DOMAIN:-}" ]; then
-        err "ENABLE_WP=1 but WP_DOMAIN not set. Skipping WordPress."
-        return 1
-    fi
     if [ ! -f "$WP_INSTALLERS/BUNDLE_HASH" ]; then
         err "WP-bundle missing in image ($WP_INSTALLERS). Skipping WordPress."
         return 1
     fi
-
     wp_prepare || return 1
 
+    local prev_domain prev_mode
+    prev_domain=$(sed -n "s/^WP_DOMAIN=//p" "$STATE_FILE" 2>/dev/null | tr -d "'")
+    prev_mode=$(sed -n "s/^WP_MODE=//p" "$STATE_FILE" 2>/dev/null | tr -d "'")
+    if [ "$prev_mode" != "$MODE" ] || [ "$prev_domain" != "${WP_DOMAIN:-}" ]; then
+        log "WP config changed: mode '${prev_mode:-?}'->'$MODE', domain '${prev_domain:-?}'->'${WP_DOMAIN:-?}'"
+    fi
+
     local cert=0
-    [ -s "$SSL_DIR/fullchain.pem" ] && cert=1
-    wp_apache_apply "$cert" || warn "Apache vhost apply had errors"
+    [ "$MODE" = name ] && [ -s "$SSL_DIR/fullchain.pem" ] && cert=1
+    wp_apache_apply "$MODE" "$cert" boot || warn "Apache vhost apply had errors"
 
     local image_hash applied_hash
     image_hash=$(cat "$WP_INSTALLERS/BUNDLE_HASH")
@@ -407,7 +492,7 @@ main() {
                 wp_perms
                 printf '%s' "$image_hash" > "$WP_DATA/.mb-bundle-hash"
             else
-                err "WordPress upgrade FAILED — MikroBILL continues, WP may be inconsistent."
+                err "WordPress upgrade FAILED — MikroBILL continues."
             fi
         else
             log "WP-bundle hash unchanged ($image_hash) — no upgrade."
@@ -422,9 +507,19 @@ main() {
         fi
     fi
 
-    wp_acme
+    wp_set_urls "$BASE"
+    [ "$MODE" = name ] && wp_acme
     wp_cron
-    log "WordPress setup done. Admin: https://$WP_DOMAIN/wp-login.php (только из сети: $REQ_IP)."
+
+    cat > "$STATE_FILE" <<EOF
+WP_DOMAIN='${WP_DOMAIN:-}'
+WP_MODE='$MODE'
+EOF
+    if [ "$MODE" = port ]; then
+        log "WordPress ready (PORT mode): $BASE  (только служебная сеть, 8080 не публикуется)."
+    else
+        log "WordPress ready (NAME mode): $BASE  admin-net: $REQ_IP."
+    fi
 }
 
 case "${1:-}" in
