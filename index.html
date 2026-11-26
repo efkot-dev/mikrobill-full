@@ -501,6 +501,7 @@ function buildSetup(c){
   if(c.wpen){
     L.push('  /container/envs/add list=$containerName key="ENABLE_WP" value="1"');
     L.push('  /container/envs/add list=$containerName key="CONTAINER_IP" value="'+c.ip+'"');
+    L.push('  /container/envs/add list=$containerName key="CONTAINER_MASK" value="'+c.mask+'"');
     if(!c.wpport){
       var wd=c.wpdomain.toLowerCase().replace(/^www\./,'');
       L.push('  /container/envs/add list=$containerName key="WP_DOMAIN" value="www.'+wd+'"');
