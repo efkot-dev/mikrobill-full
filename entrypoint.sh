@@ -45,10 +45,17 @@ echo "=== Entrypoint started at $(date) ==="
 # 04. Каталог с модулями.
 # ------------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODULE_DIR="${SCRIPT_DIR}/modules"
 
-if [ ! -d "$MODULE_DIR" ]; then
-    echo "FATAL: module directory not found: $MODULE_DIR"
+if [ -n "${MB_MODULE_DIR:-}" ] && [ -d "${MB_MODULE_DIR}" ]; then
+    MODULE_DIR="${MB_MODULE_DIR}"
+elif [ -d "/mikrobill-data/modules" ]; then
+    MODULE_DIR="/mikrobill-data/modules"
+elif [ -d "${SCRIPT_DIR}/modules" ]; then
+    MODULE_DIR="${SCRIPT_DIR}/modules"
+elif [ -d "/opt/mikrobill-modules" ]; then
+    MODULE_DIR="/opt/mikrobill-modules"
+else
+    echo "FATAL: module directory not found"
     exit 1
 fi
 
