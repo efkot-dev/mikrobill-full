@@ -22,31 +22,7 @@ if ! is_mounted /mikrobill-data; then
 fi
 
 # ------------------------------------------------------------------------------
-# 02. Удаление старых монтирований на /var/MikroBILL.
-#
-# Это нужно, если ранее использовалась другая схема монтирования.
-# ------------------------------------------------------------------------------
-if is_mounted /var/MikroBILL; then
-    echo "Old mount detected on /var/MikroBILL, unmounting it"
-    umount -R /var/MikroBILL 2>/dev/null || \
-    umount /var/MikroBILL 2>/dev/null || \
-    umount -l /var/MikroBILL 2>/dev/null || true
-fi
-
-# ------------------------------------------------------------------------------
-# 03. Очистка симлинков и создание реальных каталогов.
-# ------------------------------------------------------------------------------
-for p in /var/lib/mysql /var/www/html /var/MikroBILL; do
-    if [ -L "$p" ]; then
-        echo "Removing symlink: $p"
-        rm -f "$p"
-    fi
-
-    mkdir -p "$p"
-done
-
-# ------------------------------------------------------------------------------
-# 04. Bind mount основных каталогов данных.
+# 02. Bind mount основных каталогов данных.
 #
 # /mikrobill-data/data монтируется целиком в /var/MikroBILL,
 # потому что Linux-версия MikroBILL игнорирует /confdir=
@@ -56,8 +32,13 @@ bind_dir "$MYSQL_DIR" /var/lib/mysql
 bind_dir "$WEB_DATA_DIR" /var/www/html
 bind_dir "$DATA_DIR" /var/MikroBILL
 
+# Сертификаты и acme-состояние ядра - на диск, чтобы переживали repull.
+# Содержимое не переносим: миграций нет.
+bind_dir "${ACME_DIR:-/mikrobill-data/acme}" /root/.acme.sh
+bind_dir "${CERT_DIR:-/mikrobill-data/cert}" /etc/apache2/cert
+
 # ------------------------------------------------------------------------------
-# 05. Исправление владельцев.
+# 03. Исправление владельцев.
 # ------------------------------------------------------------------------------
 chown -R mysql:mysql /var/run/mysqld /var/lib/mysql 2>/dev/null || true
 chown -R www-data:www-data "$WEB_DIR" 2>/dev/null || true
